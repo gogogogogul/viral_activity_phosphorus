@@ -1,0 +1,591 @@
+---
+title: "figure3"
+author: "GG"
+date: "2024-10-29"
+output: html_document
+---
+
+```{r, echo=FALSE,message=FALSE,results='hide',warning=FALSE}
+#Load libraries
+library(tidyverse)
+library(vegan)
+library(ape)
+library(llnl)
+library(ggpubr)
+library(pairwiseAdonis)
+library(patchwork)
+library(cowplot)
+library(rstatix)
+library(phyloseq)
+```
+
+#Load functions
+```{r functions, echo=FALSE}
+alpha.div.plot <- function(df,stats.df,x,y,fill,color,xlab,ylab,legend.title,
+                           text.size,
+                            box.alpha = 0,
+                           shape = shape,
+                            box.line.size = 0.6,
+                            box.outliers = FALSE, jitter.width = 0.15,
+                            dodge.width = 0.9,jitter.height = 0,
+                            jitter.alpha = 0.7,jitter.size = 2,rotate = 0,
+                            hide.ns = TRUE, stat.size = 6,
+                            stat.step = 0.1, stat.tip = 0,stat.backet.nudge = 0,
+                           legend = "none"
+                            ){
+  ggboxplot(df,x=x,y=y,fill=fill,color=fill,
+            outliers = box.outliers,alpha = box.alpha,
+            size = box.line.size)+
+  geom_jitter(position = position_jitterdodge(jitter.width = jitter.width, dodge.width = dodge.width ,jitter.height = jitter.height),
+              alpha = jitter.alpha,
+              size = jitter.size,
+              aes(color = !!sym(fill),
+                  shape = !!sym(shape)))+
+  xlab(xlab)+
+  ylab(ylab)+
+  guides(x =  guide_axis(angle = rotate)) +
+  stat_pvalue_manual(stats.df, label = "p.adj.signif",
+                      hide.ns = hide.ns,size= stat.size,
+                     step.increase = stat.step,tip.length = stat.tip,
+                     bracket.nudge.y = stat.backet.nudge)+
+  theme(legend.position = legend,
+        text = element_text(size = text.size))+
+  font("axis.text")+
+  font("xylab")+
+  scale_color_manual(values = col.lnll)+ 
+  guides(color = guide_legend(title = legend.title),
+         fill = guide_legend(title = legend.title))
+  
+}
+
+# alpha.div.plot.source <- function(df,stats.df,x,y,fill,color,xlab,ylab,legend.title,
+#                             box.alpha = 0,
+#                             box.line.size = 0.6,
+#                             box.outliers = FALSE, 
+#                             jitter.width = 0.15,
+#                             dodge.width = 0.9,
+#                             jitter.height = 0,
+#                             jitter.alpha = 0.7,
+#                             jitter.size = 2,
+#                             rotate = 0,
+#                             hide.ns = TRUE,
+#                             stat.size = 6,
+#                             stat.step = 0.1,
+#                             stat.tip = 0,
+#                             stat.backet.nudge = 0,
+#                             legend = "none"
+#                             ){
+#   ggboxplot(df,x=x,y=y,fill=fill,color=fill,
+#             outliers = box.outliers,alpha = box.alpha,
+#             size = box.line.size,shape = shape)+
+#   geom_jitter(position = position_jitterdodge(jitter.width = jitter.width, dodge.width = dodge.width ,jitter.height = jitter.height),
+#               alpha = jitter.alpha,
+#               size = jitter.size,
+#               aes(color = !!sym(fill)))+
+#   #theme_bw()+
+#   xlab(xlab)+
+#   ylab(ylab)+
+#   guides(x =  guide_axis(angle = rotate)) +
+#   stat_pvalue_manual(stats.df, label = "p.adj.signif",
+#                       hide.ns = hide.ns,size= stat.size,
+#                      step.increase = stat.step,tip.length = stat.tip,
+#                      bracket.nudge.y = stat.backet.nudge)+
+#   theme(legend.position = legend)+
+#   font("axis.text")+
+#   font("xylab")+
+#   scale_color_manual(values = col.lnll)+ 
+#   guides(color = guide_legend(title = legend.title),
+#          fill = guide_legend(title = legend.title))
+#   
+# }
+
+pcoa.plots <- function(metadata.frame,eigenvalues.df,color,shape,axis_prefix="Axis.",
+                       x.axis=1 ,y.axis=2,alpha=0.7,point.size=10,text.size=18, theme.opt=theme_bw(),
+                       color.palette=NULL,shape.shapes=c(16,17,15,18),label=NULL){
+  ggscatter(metadata.frame, x=paste(axis_prefix,x.axis, sep=""), y=paste(axis_prefix,y.axis, sep=""),color=color,
+          shape=shape,
+          ggtheme = theme.opt,
+          xlab=paste("PCo",x.axis, "(", eigenvalues.df$Eigval[x.axis], " %)", sep = ""),
+          ylab=paste("PCo",y.axis, "(", eigenvalues.df$Eigval[y.axis], " %)", sep = ""),
+          size=point.size,
+          alpha=alpha,
+          palette=color.palette,
+          label = label,
+          repel = TRUE,
+          font.label = c("black")
+          )+
+    scale_shape_manual(values = shape.shapes) +
+  # set text size for whole graph. set the background color (white with no lines)
+  theme(text = element_text(size = text.size), panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+        legend.position = "right")
+}
+
+alpha.diversity <- function(df){
+  alpha.div_ <- data.frame(Richness=colSums((df > 0)*1),
+                           shannon_index = vegan::diversity(t(df), index = "shannon"),
+                           simpsons_index = vegan::diversity(t(df), index = "simpson"),
+                           inverse_simpsons_index = 1 / vegan::diversity(t(df), index = "simpson"),
+                           pielous_evenness = vegan::diversity(t(df), index = "simpson") / log(colSums((df > 0)*1)))
+  return(alpha.div_)
+}
+
+# Ellipse function
+make_ellipse <- function(df, x_col, y_col, level = 0.95, npoints = 200) {
+  coords <- df[, c(x_col, y_col)]
+  center <- colMeans(coords)
+  S      <- cov(coords)
+
+  # radius from chi-square with df = 2
+  r      <- sqrt(qchisq(level, df = 2))
+
+  angles <- seq(0, 2 * pi, length.out = npoints)
+  circle <- cbind(cos(angles), sin(angles))
+
+  ellipse <- t(center + r * t(circle %*% chol(S)))
+  out     <- as.data.frame(ellipse)
+  names(out) <- c(x_col, y_col)   # keep same col names as input
+  out
+}
+```
+
+# Data
+```{r}
+#load data
+
+virome.votu.table <- read.csv("../Data/normalized_abundance_tables/bulk_virome_normalized_table.csv",row.names = 1)
+
+virome.metadata <- read.csv("../Data/metadata/bulk_metadata.csv",row.names = "SampleID") %>% 
+  mutate(SampleID = rownames(.)) %>% 
+  mutate(wetup = ifelse(
+    Timepoint == "T0",
+    "Dry",
+    "Wet-Up"
+  ))
+
+#Metat
+metat.votu.table <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv",row.names = 1)
+metat.metadata <- read.csv("../Data/metadata/metat_metadata.csv",row.names = "SampleID")%>% 
+  mutate(SampleID = rownames(.))%>% 
+  mutate(wetup = ifelse(
+    Timepoint == "T0",
+    "Dry",
+    "Wet-Up"
+  ))
+
+#16S Data
+phylo.16s <- readRDS("../Data/amplicon/rarefied_phyloseq_object.king.RDS")
+amplicon.d.order <- sample_data(phylo.16s)
+```
+
+
+# Create distance matrix
+```{r}
+#### Virome ####
+virome.dist <- dist.table(virome.votu.table,"Y", "bray")
+virome.meta.d.order <- meta.mod(virome.metadata,virome.dist)
+  
+#### Metat ####
+metat.dist <- dist.table(metat.votu.table,"Y", "bray")
+metat.meta.d.order <- meta.mod(metat.metadata,metat.dist)
+
+### Amplicon ###
+otu.table <- t(otu_table(phylo.16s)) %>% 
+  data.frame()
+
+otu.metadata <- data.frame(sample_data(phylo.16s))
+
+amp.dist <- dist.table(otu.table,"Y", "bray")
+amp.meta.d.order <- meta.mod(otu.metadata,amp.dist)
+
+```
+
+
+Variables for all of the figures
+```{r}
+text.size=15
+point.size = 8
+alpha = 0.9
+
+```
+
+
+# Alpha Diversity
+
+```{r}
+#Generate df
+virome.alpha.df <- alpha.diversity(virome.votu.table)
+virome.m.data <- merge(virome.metadata,virome.alpha.df,by.x="SampleID",by.y="row.names")
+
+metat.alpha.df <- alpha.diversity(metat.votu.table)
+metat.m.data <- merge(metat.metadata,metat.alpha.df,by.x="SampleID",by.y="row.names")
+
+#16S
+metat.alpha.df <- alpha.diversity(t(otu_table(phylo.16s)))
+amplicon.d.order <- merge(data.frame(amplicon.d.order),metat.alpha.df,by.x="Sample",by.y="row.names")
+```
+
+
+## plot alpha diversity
+
+```{r}
+text.size = 15
+point.size = 2.5
+jitter.width = 0.5
+
+# Virome
+df <- virome.m.data %>% 
+  filter(Timepoint != "T0")
+
+x <- "Phosphorus"
+y <-  "Richness"
+A <- as.formula(paste(y, "~", 
+                        x))
+xlab = "Soil Type"
+ylab= "Richness"
+rotate=0
+legend="none"
+fill="Phosphorus"
+
+lm.mod <- lm((Richness)~Phosphorus,data=df)
+shapiro.test(lm.mod$residuals)
+aov.mod <- aov(lm.mod)
+tukey_hsd.stat <- tukey_hsd(aov.mod) %>% 
+  mutate(xmin = case_when(
+    grepl("Dry",group1) ~ 1,
+    grepl("No Phosphorus",group1) ~ 2,
+    grepl("Phosphorus",group1) ~ 3,
+    TRUE ~ 4
+  ),xmax = case_when(
+    grepl("Dry",group2) ~ 1,
+    grepl("No Phosphorus",group2) ~ 2,
+    grepl("Phosphorus",group2) ~ 3,
+    TRUE ~ 4
+  ),
+  y.position = max(df$Richness)*1.05)
+
+stats.df=tukey_hsd.stat
+
+virome.richness <- alpha.div.plot(df = df,stats.df = tukey_hsd.stat,x=x,y=y,fill =  fill,color = fill,xlab = xlab,ylab = ylab,legend.title = "Soil Treatment", 
+                                        jitter.size = point.size,
+                                        text.size = text.size,
+                                        jitter.width = jitter.width,
+                                  shape = "Timepoint")
+
+
+virome.richness+
+  theme(legend.position = "right")
+
+### Metat
+
+df <- metat.m.data %>% 
+  filter(Timepoint != "T0")
+x <- "Phosphorus"
+y <-  "Richness"
+A <- as.formula(paste(y, "~", 
+                        x))
+xlab = "Soil Type"
+ylab= "Richness"
+rotate=0
+legend="none"
+fill="Phosphorus"
+
+lm.mod <- lm((Richness)~Phosphorus,data=df)
+shapiro.test(lm.mod$residuals)
+aov.mod <- aov(lm.mod)
+tukey_hsd.stat <- tukey_hsd(aov.mod) %>% 
+  mutate(xmin = case_when(
+    grepl("Dry",group1) ~ 1,
+    grepl("No Phosphorus",group1) ~ 2,
+    grepl("Phosphorus",group1) ~ 3,
+    TRUE ~ 4
+  ),xmax = case_when(
+    grepl("Dry",group2) ~ 1,
+    grepl("No Phosphorus",group2) ~ 2,
+    grepl("Phosphorus",group2) ~ 3,
+    TRUE ~ 4
+  ),
+  y.position = max(df$Richness)*1.05)
+
+stats.df=tukey_hsd.stat
+
+metat.richness <- alpha.div.plot(df = df,stats.df = tukey_hsd.stat,x=x,y=y,fill =  fill,color = fill,xlab = xlab,ylab = ylab,legend.title = "Soil Treatment", 
+                                        jitter.size = point.size,
+                                        text.size = text.size,
+                                        jitter.width = jitter.width,
+                                 shape = "Timepoint")
+
+
+metat.richness+
+  theme(legend.position = "right")
+
+### 16S
+
+df <- amplicon.d.order %>% 
+  filter(Timepoint != "T0")
+x <- "Phosphorus"
+y <-  "Richness"
+A <- as.formula(paste(y, "~", 
+                        x))
+xlab = "Soil Type"
+ylab= "Richness"
+rotate=0
+legend="none"
+fill="Phosphorus"
+
+lm.mod <- lm(log(Richness)~Phosphorus,data=df)
+shapiro.test(lm.mod$residuals)
+aov.mod <- aov(lm.mod)
+tukey_hsd.stat <- tukey_hsd(aov.mod) %>% 
+  mutate(xmin = case_when(
+    grepl("Dry",group1) ~ 1,
+    grepl("No Phosphorus",group1) ~ 2,
+    grepl("Phosphorus",group1) ~ 3,
+    TRUE ~ 4
+  ),xmax = case_when(
+    grepl("Dry",group2) ~ 1,
+    grepl("No Phosphorus",group2) ~ 2,
+    grepl("Phosphorus",group2) ~ 3,
+    TRUE ~ 4
+  ),
+  y.position = max(df$Richness)*1.05)
+
+stats.df=tukey_hsd.stat
+
+amplicon.richness <- alpha.div.plot(df = df,stats.df = tukey_hsd.stat,x=x,y=y,fill =  fill,color = fill,xlab = xlab,ylab = ylab,legend.title = "Soil Treatment", 
+                                        jitter.size = point.size,
+                                        text.size = text.size,
+                                        jitter.width = jitter.width,
+                                    shape = "Timepoint")
+
+
+amplicon.richness+
+  theme(legend.position = "right")
+
+```
+
+#  Bray-Curtis Distance
+
+```{r}
+text.size=22
+point.size = 3.25
+####Virome####
+print("Virome")
+virome.pcoa <- pcoa(as.dist(virome.dist))
+
+# make a dataframe named axes, put pcoa values in there
+virome.axes <- as.data.frame(virome.pcoa$vectors)
+
+# Give df extra column with the rownames in it 
+virome.axes$SampleID <- rownames(virome.axes)
+
+# calculate the eigenvalues for each pcoa axes 
+virome.eigval <- round(virome.pcoa$values$Relative_eig * 100, digits = 2)
+
+# Put those eigenvalues in a df so they easy to get to. 
+virome.eigval <- data.frame( PC = 1:length(virome.eigval), Eigval = virome.eigval)
+#head(eigval) # see top eigenvalues
+virome.eigval[[1,2]] # see first axes percentage
+virome.eigval[[2,2]] # second axes
+
+#Double check they are in the same order
+
+all(rownames(virome.meta.d.order) == rownames(virome.axes))
+all(virome.meta.d.order$SampleID == virome.axes$SampleID)
+virome.axes <- merge(virome.meta.d.order, virome.axes, by.x = "SampleID", by.y = "SampleID")
+
+#Create the ellipse
+ellipses <- virome.axes %>%
+  group_by(Phosphorus) %>%
+  group_modify(~ make_ellipse(.x,x_col = "Axis.1",y_col="Axis.2", level = 0.95, npoints = 200)) %>%
+  ungroup()
+
+virome.pcoa <- pcoa.plots(virome.axes ,virome.eigval,shape = "Timepoint", color = "Phosphorus",point.size = point.size, text.size = text.size,color.palette = col.lnll,alpha = alpha,x.axis = 1,y.axis = 2)+
+  guides(shape=guide_legend(title="Time point (weeks)"),
+         color = guide_legend(title = "Soil Treatment")) + 
+  geom_path(
+    data = ellipses,
+    aes(
+      x = Axis.1,
+      y = Axis.2,
+      group    = Phosphorus,
+      color    = Phosphorus,
+      linetype = Phosphorus
+    ),
+    alpha = 1,
+    show.legend = FALSE
+  )
+
+
+set.seed(1990)
+
+adonis2(as.dist(virome.dist)~Timepoint,data=virome.axes, by = "terms")
+adonis2(as.dist(virome.dist)~Phosphorus,data=virome.axes, by = "terms")
+adonis2(as.dist(virome.dist)~wetup,data=virome.axes, by = "terms")
+adonis2(as.dist(virome.dist)~Phosphorus*Timepoint,data=virome.axes, by = "terms")
+
+
+pairwise.adonis(as.dist(virome.dist),virome.axes$Timepoint)
+pairwise.adonis(as.dist(virome.dist),virome.axes$Phosphorus)
+pairwise.adonis(as.dist(virome.dist),virome.axes$wetup)
+
+lapply(c("T1", "T2", "T3"),function(x){
+  print(x)
+  dist_ <- virome.dist[,grepl(x,colnames(virome.dist))]
+  dist_ <- dist_[grepl(x,rownames(dist_)),]
+  meta.data_ <- virome.axes %>% filter(Timepoint == x)
+  print(pairwise.adonis(as.dist(dist_),meta.data_$Phosphorus))
+})
+
+
+print(virome.pcoa)
+
+####MetaT####
+print("Metat")
+metat.pcoa <- pcoa(as.dist(metat.dist))
+
+# make a dataframe named axes, put pcoa values in there
+metat.axes <- as.data.frame(metat.pcoa$vectors)
+
+# Give df extra column with the rownames in it 
+metat.axes$SampleID <- rownames(metat.axes)
+
+# calculate the eigenvalues for each pcoa axes 
+metat.eigval <- round(metat.pcoa$values$Relative_eig * 100, digits = 2)
+
+# Put those eigenvalues in a df so they easy to get to. 
+metat.eigval <- data.frame( PC = 1:length(metat.eigval), Eigval = metat.eigval)
+#head(eigval) # see top eigenvalues
+metat.eigval[[1,2]] # see first axes percentage
+metat.eigval[[2,2]] # second axes
+
+#Double check they are in the same order
+
+all(rownames(metat.meta.d.order) == rownames(metat.axes))
+all(metat.meta.d.order$SampleID == metat.axes$SampleID)
+metat.axes <- merge(metat.meta.d.order, metat.axes, by.x = "SampleID", by.y = "SampleID")
+
+#Create the ellipse
+ellipses.metat <- metat.axes %>%
+  group_by(Phosphorus) %>%
+  group_modify(~ make_ellipse(.x,x_col = "Axis.1",y_col="Axis.2", level = 0.95, npoints = 200)) %>%
+  ungroup()
+
+metat.pcoa <- pcoa.plots(metat.axes ,metat.eigval,shape = "Timepoint", color = "Phosphorus",point.size = point.size, text.size = text.size,color.palette = col.lnll,alpha = alpha,x.axis = 1,y.axis = 2)+
+  guides(shape=guide_legend(title="Time point (weeks)"),
+         color = guide_legend(title = "Soil Treatment")) + 
+  geom_path(
+    data = ellipses.metat,
+    aes(
+      x = Axis.1,
+      y = Axis.2,
+      group    = Phosphorus,
+      color    = Phosphorus,
+      linetype = Phosphorus
+    ),
+    alpha = 1,
+    show.legend = FALSE
+  )
+
+
+set.seed(1990)
+
+adonis2(as.dist(metat.dist)~Timepoint,data=metat.axes, by = "terms")
+adonis2(as.dist(metat.dist)~Phosphorus,data=metat.axes, by = "terms")
+adonis2(as.dist(metat.dist)~wetup,data=metat.axes, by = "terms")
+adonis2(as.dist(metat.dist)~Phosphorus*Timepoint,data=metat.axes, by = "terms")
+
+
+pairwise.adonis(as.dist(metat.dist),metat.axes$Timepoint)
+pairwise.adonis(as.dist(metat.dist),metat.axes$Phosphorus)
+pairwise.adonis(as.dist(metat.dist),metat.axes$wetup)
+
+```
+
+## 16S pcoa
+16S
+```{r}
+#Make the pcoa plot
+pcoa <-  pcoa(as.dist(amp.dist))
+
+# make a dataframe named axes, put pcoa values in there
+axes <- as.data.frame(pcoa$vectors)
+
+# Give df extra column with the rownames in it 
+axes$SampleID <- rownames(axes)
+
+# calculate the eigenvalues for each pcoa axes 
+eigval <- round(pcoa$values$Relative_eig * 100, digits = 2)
+
+# Put those eigenvalues in a df so they easy to get to. 
+eigval <- data.frame( PC = 1:length(eigval), Eigval = eigval)
+#head(eigval) # see top eigenvalues
+eigval[[1,2]] # see first axes percentage
+eigval[[2,2]] # second axes
+
+#Double check they are in the same order
+all(rownames(amp.meta.d.order) == rownames(axes))
+all(amp.meta.d.order$Sample == axes$SampleID)
+axes <- merge(data.frame(amp.meta.d.order), axes, by.x = "Sample", by.y = "SampleID")
+
+#Create the ellipse
+ellipses.amplicon <- axes %>%
+  group_by(Phosphorus) %>%
+  group_modify(~ make_ellipse(.x,x_col = "Axis.1",y_col="Axis.2", level = 0.95, npoints = 200)) %>%
+  ungroup()
+
+#Figure
+pcoa.16s <- pcoa.plots(axes ,eigval,shape = "Timepoint", color = "Phosphorus",point.size = point.size, text.size = text.size,color.palette = col.lnll,alpha = alpha,x.axis = 1,y.axis = 2)+
+  guides(shape=guide_legend(title="Time point (weeks)"),
+         color = guide_legend(title = "Soil Treatment")) + 
+  geom_path(
+    data = ellipses.amplicon,
+    aes(
+      x = Axis.1,
+      y = Axis.2,
+      group    = Phosphorus,
+      color    = Phosphorus,
+      linetype = Phosphorus
+    ),
+    alpha = 1,
+    show.legend = FALSE
+  ) 
+
+adonis2(as.dist(amp.dist)~Phosphorus*Timepoint,data=axes,by = "terms")
+pairwise.adonis(as.dist(amp.dist),axes$Phosphorus)
+```
+
+# Make one figure
+```{r}
+library(patchwork)
+
+label.size = 20
+point.size = 9
+
+
+pcoa.figs <- virome.pcoa+ 
+  ggtitle("Virome") + 
+  metat.pcoa + 
+  ggtitle("Metatranscriptome") + 
+  pcoa.16s +
+  ggtitle("16S rRNA gene") + 
+  plot_annotation(tag_levels = "A") + 
+  plot_layout(guides = "collect") &
+  theme(legend.position = "none",
+        plot.tag = element_text(size = label.size, face = "bold"))
+
+
+richness.fig <- plot_grid(virome.richness, metat.richness, amplicon.richness,
+                      labels = c("D","E","F"),
+                     nrow = 1,
+                     label_size = label.size)
+
+top.figs <- ggpubr::ggarrange(pcoa.figs,richness.fig,
+                     nrow = 2,
+                  heights =  c(1,0.5),common.legend = TRUE,
+                  font.label = list(size = label.size),
+                  legend = "right")
+
+ggsave(plot=top.figs, "../figures/figure3.png",height=10,width=17)
+ggsave(plot=top.figs, "../figures/figure3.svg",height=10,width=17)
+```
