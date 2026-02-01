@@ -1,0 +1,663 @@
+---
+title: "Untitled"
+author: "GG"
+date: "2024-10-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(llnl)
+library(rstatix)
+library(ggpubr)
+library(tidyverse)
+library(scales)
+library(ggtext)
+library(patchwork)
+library(ggtext)
+```
+
+Generate figure 4 and supplamentary figure 2
+
+Used the equation found in Alexa paper
+
+https://www.nature.com/articles/s41467-023-40835-4
+
+```{r Import Data}
+votu.metadata <- readRDS("../Data/votu_metadata.RDS")
+
+predicted.dna.weight <- read.csv("../Data/predicted.dna.weight.csv") %>% 
+  mutate(Header = gsub(">","",Header),
+         Header = gsub("\\|","\\.",Header),
+         Header = gsub("-","\\.",Header),
+         Header = gsub("/","_",Header))
+
+#add the weight in kDAa to the dataframe
+votu.metadata <- merge(votu.metadata, predicted.dna.weight, by.x = "row.names", by.y = "Header") %>% 
+  column_to_rownames("Row.names")
+
+metat.rna.conc <- readRDS("../Data/metat.rna.conc.RDS")
+
+dna.conc <- readRDS("../Data/jgi.final.dna.conc.RDS")
+
+dna.conc <- dna.conc %>% 
+  full_join(metat.rna.conc)
+
+#Reads mapped
+virome.mapped <- read.csv("../Data/bulk.virome.total.reads.csv",row.names = 1) 
+
+meta.mapped <- read.csv("../Data/metat.rare.csv")
+meta.mapped$sample <- gsub("-",".",meta.mapped$sample)
+
+#Virome abundane tables
+#Normailzed abundances
+virome.table <- read.csv("../Data/normalized_abundance_tables/bulk_virome_normalized_table.csv",row.names = 1)
+#Raw counts with > 90% ANI
+virome.counts <- read.csv("../Data/raw_abundance_tables/virome/bulk_virome_0.9_counts.csv",sep = "\t",row.names = 1)
+
+#Data to calculate reads for ssDNA viruses
+metat.table <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv",row.names = 1)
+metat.counts <- read.csv("../Data/raw_abundance_tables/metat/metat_0.9_counts.csv",sep = "\t",row.names = 1)
+
+# Modify special characters in rownames to match the metat abundance table rownames
+rownames(metat.counts) <- rownames(metat.counts) %>%
+  gsub("\\|", ".", .) %>%
+  gsub("/", ".", .) %>%
+  gsub("-", ".", .)
+```
+
+```{r functions}
+# Custom function for formatting to add scientific notation to the figures
+format_superscript <- function(x) {
+  ifelse(
+    x == 0, 
+    "0",  # Leave 0 as-is
+    gsub("10\\^0?([1-9]+)", "10<sup>\\1</sup>", 
+         gsub("e\\+?", " × 10^", scales::scientific(x))) # Format scientific notation
+  )
+}
+```
+
+
+#Need to do a strand corrected weight for. THe Da weight is calculated for a single stand of dna, if it is dsDNA or unassigned going to muplitple by 2
+```{r}
+#add the weight in kDAa to the dataframe
+votu.metadata <- votu.metadata %>% 
+  mutate(strand.corr.da = ifelse(ssdna.dsdna != "ssDNA",
+                                 Estimated.Weight..Da.*2,
+                                 Estimated.Weight..Da.))
+```
+
+Calculate the number of reads that were mapped to a vOTU (viral reads)
+```{r}
+#convert the virome table to +/- # This will make sure that the votu had a breath >= 75% 
+virome.table[virome.table > 0] <- 1
+
+#multiply the count table by the +/- table # if a votu was not present it will change the value to 0
+virome.counts.pa <- virome.table*virome.counts
+
+#Count the number of reads that mapped per sample
+#convert to dataframe
+total.virome.counts <- data.frame(virome.counts = colSums(virome.counts.pa))
+
+# changes the row names to match the other dataframe
+rownames(total.virome.counts) <- paste(rownames(total.virome.counts),"virome",sep = "")
+
+#add to the lentght data
+virome.mapped <- merge(virome.mapped,total.virome.counts, by.x = "row.names", by.y = "row.names")
+```
+
+Get Virome [DNA]
+
+```{r}
+dna.conc.virome <- dna.conc %>%
+  left_join(virome.mapped,by = c("Samples"="Row.names")) %>% # convert mapped reads into a % (This is read mapped to a vOTU)
+  mutate(mapped.pct = virome.counts/total.reads, # convert mapped reads into a % (This is read mapped to a vOTU)
+         viral.dna.ng = dna.ng*mapped.pct) %>%  #then multiple the DNA by the mapped % to get viral DNA
+  filter(Samples != "T3H218O_Avirome") #Remove this samples because there was not enough soil to extract/sequence
+
+# Get the average length of vOTUs per Phosphorus groups and Non Phosphorus Groups 
+avg.bp.virome <- rbind(
+  votu.metadata %>% 
+    select(virome_phosphorus,length,strand.corr.da) %>% #vOTUs found in phosphorus treatment 
+    filter(virome_phosphorus == TRUE) %>% 
+    summarize(avg.weight.da = mean(strand.corr.da)) %>% 
+    mutate(sample.type = "Virome.Phosphorus"),
+  votu.metadata %>% 
+    select(virome_no.phosphorus,length,strand.corr.da) %>% #vOTUs found in no phosphorus treatment 
+    filter(virome_no.phosphorus == TRUE) %>% 
+    summarize(avg.weight.da = mean(strand.corr.da)) %>% 
+    mutate(sample.type = "Virome.No.Phosphorus"),
+  votu.metadata %>% 
+    select(virome_T0.phosphorus,length,strand.corr.da) %>% # vOTUs found in dry soil
+    filter(virome_T0.phosphorus == TRUE) %>% 
+    summarize(avg.weight.da = mean(strand.corr.da)) %>% 
+    mutate(sample.type = "Virome.Dry"))
+
+
+#lets calculate virions per sample
+dna.conc.virome <- dna.conc.virome %>% 
+  mutate(Phosphorus = ifelse(
+    grepl("P",Samples),
+    "Phosphorus",
+    "No Phosphorus"
+  ),virions.da = ifelse(
+    grepl("T0",Samples),
+    (viral.dna.ng*6.0221E23)/((avg.bp.virome %>% filter(sample.type == "Virome.Dry"))[[1]]*1E9),
+    ifelse(
+      grepl("P",Samples),
+    (viral.dna.ng*6.0221E23)/((avg.bp.virome %>% filter(sample.type == "Virome.Phosphorus"))[[1]]*1E9),
+    (viral.dna.ng*6.0221E23)/((avg.bp.virome %>% filter(sample.type == "Virome.No.Phosphorus"))[[1]]*1E9)
+  )
+  ),
+  virions.da.g = ifelse(grepl("T0", Time.Point),virions.da/(10/1.07),virions.da/(10/1.3))
+  )
+
+# add a group of T0 that will be phosphorus, to make sure they have the same starting point for dry soils
+t0.dups <- dna.conc.virome %>% 
+  filter(Time.Point == "T0") %>% 
+  mutate(Phosphorus = "Phosphorus")
+
+dna.conc.virome <- dna.conc.virome %>% 
+  bind_rows(t0.dups)
+
+#since we doubled the number T0 in the data frame I want to remove them for our stats
+#this will make sure that there are no duplicates of T0 and convert the source to Dry for stats
+dna.conc.virome.no.t0 <- dna.conc.virome %>% 
+  dplyr::filter(Time.Point != "T0" )
+
+dna.conc.virome.stat.df <- dna.conc.virome %>% 
+  dplyr::filter(Time.Point == "T0" & Phosphorus == "Phosphorus") %>% 
+  mutate(Phosphorus = "Dry") %>% 
+  bind_rows(dna.conc.virome.no.t0)
+
+#Use a linear model 
+lm.mod <- lm(virions.da.g~Time.Point+Phosphorus,dna.conc.virome.stat.df)
+
+shapiro.test(lm.mod$residuals)
+aov.mod <- aov(lm.mod)
+summary(aov.mod)
+time.pho <- tukey_hsd(aov.mod,) %>% 
+  mutate(Time.Point = ifelse(grepl("Phosphorus",term),
+                             "Phosphorus",
+                             "time"))
+
+
+#now compare if treatement was significant at each time point
+time.p <- dna.conc.virome.stat.df %>%
+  filter(Time.Point!="T0") %>%
+  group_by(Time.Point) %>%
+  do({
+    # Fit the model with aov to allow for Tukey's HSD test
+    model <- lm(virions.da.g ~ Phosphorus, data = .)
+    model <- aov(virions.da.g ~ Phosphorus, data = .)
+    
+    # Perform Tukey's HSD test
+    tukey_results <- tukey_hsd(model)
+  })  %>%
+  ungroup()
+
+all.stats <- rbind(time.p,time.pho) %>% 
+  mutate(p.adj = p.adjust(p.adj,method = "BH")) %>% 
+  add_significance("p.adj") %>% 
+  mutate(xmin = case_when(
+    Time.Point == "T1" ~ 2,
+    Time.Point == "T2" ~ 3,
+    Time.Point == "T3" ~ 4,
+    group1 == "T0" ~ 1,
+    group1 == "T1" ~ 2,
+    group1 == "T2" ~ 3,
+    group1 == "T3" ~ 4
+  ),xmax = case_when(
+    Time.Point == "T1" ~ 2,
+    Time.Point == "T2" ~ 3,
+    Time.Point == "T3" ~ 4,
+    group2 == "T0" ~ 1,
+    group2 == "T1" ~ 2,
+    group2 == "T2" ~ 3,
+    group2 == "T3" ~ 4
+  ),
+  y.position = ifelse(grepl("T0",Time.Point),max(dna.conc.virome$virions.da)/(10/1.07),max(dna.conc.virome$virions.da)/10)#divide by soil
+  ) %>% 
+  mutate(p.adj.signif = ifelse(term == "Phosphorus" ,gsub("\\*","‡",p.adj.signif),p.adj.signif),
+         y.position = ifelse(term == "Phosphorus" ,max(dna.conc.virome$virions.da)/10,y.position))
+
+virions.virome <- ggplot(dna.conc.virome,aes(x=Time.Point,y=virions.da.g, #divide by soil
+                                             ,color = Phosphorus))+
+  geom_smooth(aes(group = Phosphorus,fill = Phosphorus))+
+  scale_color_manual(values= col.lnll)+
+  scale_fill_manual(values= col.lnll)+
+  stat_pvalue_manual(all.stats %>% filter(Time.Point == "T1" |
+                                            Time.Point == "T2" |
+                                            Time.Point == "T3"),
+                     hide.ns = TRUE,
+                     tip.length = 0,step.increase = 0)+ #filter for if there was a significant difference +/- phosphorus in each time point
+  stat_pvalue_manual(all.stats %>% filter(Time.Point == "time"),
+                     hide.ns = TRUE,
+                     tip.length = 0,
+                     step.increase = 0.05,size = 7)+ #filter for if there was a significant difference between time points
+  theme_classic2()+
+  xlab("Time (Weeks)")+
+  ylab("Virions per g of soil")+
+  labs(color = "Treatment",
+       fill  = "Treatment")+
+  scale_y_continuous(
+    labels = function(x) format_superscript(x)
+  )+
+  theme(axis.text.y = ggtext::element_markdown(),
+        text = element_text(size = 20))+
+    ## space for labels + allow drawing outside panel
+  coord_cartesian(clip = "off") +
+  theme(plot.margin = margin(t = 5, r = 5, b = 28, l = 5),
+        axis.title.x = element_text(margin = margin(t = 38))) +
+
+  ## Dry/Wet bar under the x-axis (factor positions: T0=1, T1=2, T2=3, T3=4)
+  annotation_custom(
+    grid::linesGrob(x = unit(c(0.0, 0.25), "npc"),
+                    y = unit(c(-0.09, -0.09), "npc"),
+                    gp = grid::gpar(col = "burlywood4", lwd = 4))
+  ) +
+  annotation_custom(
+    grid::linesGrob(x = unit(c(0.25, 1.0), "npc"),
+                    y = unit(c(-0.09, -0.09), "npc"),
+                    gp = grid::gpar(col = "darkblue", lwd = 4))
+  )+   # blue
+
+  ## Labels for the bars
+  annotate("text", x = 1.0, y = -Inf, label = "Dry",
+           vjust = 3.7, size = 6, fontface = "bold", colour = "burlywood4") +
+  annotate("text", x = 3, y = -Inf, label = "Wet",
+           vjust = 3.7, size = 6, fontface = "bold", colour = "darkblue")
+```
+
+### METAT STUFF ###
+# Get the amount of reads that mapped  active viruses
+```{r}
+#convert the active viruses table to +/- # This will make sure that the votu had a breath >= 75% 
+metat.table[metat.table > 0] <- 1
+
+#filter for votus in the active votu abundance table so that the df are the same size
+metat.counts <- metat.counts[rownames(metat.counts) %in% rownames(metat.table),] 
+
+#multiply the count table by the +/- table # if a votu was not present it will change the value to 0
+metat.counts.pa <- metat.table*metat.counts
+
+#Count the number of reads that mapped per sample
+#convert to dataframe
+total.metat.counts <- data.frame(metat.counts = colSums(metat.counts.pa))
+
+#add to the votu length data
+meta.mapped <- merge(meta.mapped,total.metat.counts, by.x = "sample", by.y = "row.names")
+
+```
+
+
+```{r}
+rna.conc.metat <- metat.rna.conc %>%
+  rename_with(~ gsub(" ", "\\.", .)) %>% 
+  select(Samples,Total.metaT.RNA..ng..2) %>% #change samples names to match MetaT sample names
+  mutate(Samples = gsub("virome","",Samples),
+         Samples = gsub("T0_","T0\\.R\\.Dry\\.soil\\.",Samples),
+         Samples = gsub("H2","\\.R\\.H2",Samples),
+         Samples = gsub("P_","\\.P\\.",Samples),
+         Samples = gsub("_","\\.",Samples),
+         Time.Point = substr(Samples,1,2)) %>% 
+  left_join(meta.mapped,by = c("Samples"="sample")) %>% # convert mapped reads into a % (This is read mapped to a vOTU)
+  mutate(mapped.pct = metat.counts/total.reads, # convert mapped reads into a % (This is read mapped to a vOTU)
+         metat.dna.ng = Total.metaT.RNA..ng..2*mapped.pct) #then multiple the DNA by the mapped % to get viral DNA
+
+# Get the average length of vOTUs per Phosphorus groups and Non Phosphorus Groups 
+avg.bp.metat <- rbind(
+  votu.metadata %>% 
+    select(metat_phosphorus,length,strand.corr.da) %>% 
+    filter(metat_phosphorus == TRUE) %>% 
+    summarize(avg.weight.da = mean(strand.corr.da)) %>% 
+    mutate(sample.type = "Metat.Phosphorus"),
+  votu.metadata %>% 
+    select(metat_no.phosphorus,length,strand.corr.da) %>% # counting T0 as no phosphorus since it tecnically did not have phosphorus added
+    filter(metat_no.phosphorus == TRUE) %>% 
+    summarize(avg.weight.da = mean(strand.corr.da)) %>% 
+    mutate(sample.type = "Metat.No.Phosphorus"),
+  votu.metadata %>% 
+    select(metat_T0.phosphorus,length,strand.corr.da) %>% # counting T0 as no phosphorus since it tecnically did not have phosphorus added
+    filter(metat_T0.phosphorus == TRUE) %>% 
+    summarize(avg.weight.da = mean(strand.corr.da)) %>% 
+    mutate(sample.type = "Metat.T0"))
+
+#lets calculate virocells per sample
+rna.conc.metat <- rna.conc.metat %>% 
+  mutate(Phosphorus = ifelse(
+    grepl("P",Samples),
+    "Phosphorus",
+    "No Phosphorus"
+  ),virions.da = ifelse(
+    grepl("T0",Samples),
+    (metat.dna.ng*6.0221E23)/((avg.bp.metat %>% filter(sample.type == "Metat.T0"))[[1]]*1E9),
+  ifelse(
+    grepl("P",Samples),
+    (metat.dna.ng*6.0221E23)/((avg.bp.metat %>% filter(sample.type == "Metat.Phosphorus"))[[1]]*1E9),
+    (metat.dna.ng*6.0221E23)/((avg.bp.metat %>% filter(sample.type == "Metat.No.Phosphorus"))[[1]]*1E9))))
+
+#Since the metat is transcriptionally active we need to convert into virocells. Since we do not know how many viruses are in a virocell we will look at multiple different virus/cell
+
+list.numbers<- c(1,5,10,50,100,200)
+
+add.virocells <- function(list.numbers,df){
+  new.df <- do.call(cbind,lapply(list.numbers,function(FS){
+    col.name.da <- paste("Virocell_da.",FS,sep = "")
+    df[[col.name.da]] <- df$virions.da/FS
+    df_ <- data.frame(df[[col.name.da]],df$Samples)
+    names(df_) <- c(col.name.da, "Samples")
+    return(df_)
+    }))
+  new.df <- new.df[, !duplicated(names(new.df))]#remove duplicatat columns
+  new.df <- merge(df,new.df,by = "Samples")
+  return(new.df)
+}
+
+df.virocells <- add.virocells(list.numbers,rna.conc.metat)
+
+
+# add a group of T0 that will be phosphorus
+t0.dups <- df.virocells %>% 
+  filter(Time.Point == "T0") %>% 
+  mutate(Phosphorus = "Phosphorus")
+
+df.virocells <- df.virocells %>% 
+  bind_rows(t0.dups)
+
+#Convert to a long dataframe to make into figures
+df.virocells.long <- df.virocells %>% 
+  pivot_longer(contains("Virocell"),values_to = "Virocells") %>% 
+  mutate(virus.per.cell = str_extract(name, "(?<=_).*"),        
+          Virocells.g = ifelse(grepl("T0",Samples),
+            Virocells/(0.5/1.07), #divide by soil
+            Virocells/(0.5/1.3))) #divide by soil
+
+
+
+#since we doubled the number T0 in the data frame I want to remove them for our stats
+df.virocells.long.stat.df <- df.virocells.long %>% 
+  dplyr::filter(Time.Point != "T0" )
+
+df.virocells.long.stat.df <- df.virocells.long %>% 
+  dplyr::filter(Time.Point == "T0" & Phosphorus == "Phosphorus") %>% 
+  mutate(Phosphorus = "Dry") %>% 
+  bind_rows(df.virocells.long.stat.df)
+
+lm.mod <- lm(Virocells.g~Time.Point+ Phosphorus,data = df.virocells.long.stat.df %>% 
+                          filter(grepl("da",virus.per.cell)) %>% 
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)) %>% 
+                                            filter(virus.per.cell == 200))
+
+shapiro.test(lm.mod$residuals)
+aov.mod <- aov(lm.mod)
+summary(aov.mod)
+time.pho <- tukey_hsd(aov.mod) %>%
+  mutate(Time.Point = ifelse(grepl("Phosphorus",term),
+                             "Phosphorus",
+                             "time"))
+
+time.p <- df.virocells.long.stat.df %>% 
+                          filter(grepl("da",virus.per.cell)) %>% 
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)) %>% 
+                                            filter(virus.per.cell == 200) %>%
+  filter(Time.Point!="T0") %>%
+  group_by(Time.Point) %>%
+  do({
+    # Fit the model with aov to allow for Tukey's HSD test
+    model <- lm(Virocells.g~ Phosphorus, data = .)
+
+    # Perform Tukey's HSD test
+    tukey_results <- tukey_hsd(model)
+  })  %>%
+  ungroup()
+
+all.stat <-rbind(time.p,time.pho) %>%  
+  mutate(p.adj = p.adjust(p.adj,method = "BH")) %>% 
+  mutate(xmin = case_when(
+    Time.Point == "T1" ~ 2,
+    Time.Point == "T2" ~ 3,
+    Time.Point == "T3" ~ 4,
+    group1 == "T0" ~ 1,
+    group1 == "T1" ~ 2,
+    group1 == "T2" ~ 3,
+    group1 == "T3" ~ 4
+  ),xmax = case_when(
+   Time.Point == "T1" ~ 2,
+    Time.Point == "T2" ~ 3,
+    Time.Point == "T3" ~ 4,
+    group2 == "T0" ~ 1,
+    group2 == "T1" ~ 2,
+    group2 == "T2" ~ 3,
+    group2 == "T3" ~ 4
+  ),
+  y.position = ifelse(term == "Phosphorus",max(df.virocells.long$Virocells.g)/250,max(df.virocells.long$Virocells.g)/250*1.1)
+  ) %>% 
+  mutate(p.adj.signif = ifelse(term == "Phosphorus" ,gsub("\\*"," ‡",p.adj.signif),p.adj.signif),
+         y.position = ifelse(term == "Phosphorus" ,max(df.virocells.long$Virocells.g)/195,y.position))
+
+# find offset below x-axis
+y_offset <- -0.08 * max(df.virocells.long %>% 
+                          filter(grepl("da",virus.per.cell)) %>% 
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)) %>% 
+                                            filter(virus.per.cell == 200) %>% pull(Virocells.g), na.rm = TRUE)
+
+
+virions.metat.200 <- ggplot(df.virocells.long %>% 
+                          filter(grepl("da",virus.per.cell)) %>% 
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)) %>% 
+                                            filter(virus.per.cell == 200),aes(x=Time.Point,y=Virocells.g #gram of soil
+                                                                              ,color = Phosphorus))+
+  geom_smooth(aes(group = Phosphorus,fill = Phosphorus))+
+  scale_color_manual(values= col.lnll)+
+  scale_fill_manual(values= col.lnll)+
+theme_classic2()+
+  xlab("Time (Weeks)")+
+  ylab("Virocells per gram of soil")+
+  # ylab("Actively infected cells per g of soil")+
+  labs(fill = "Treatment",
+       color = "Treatment")+
+  stat_pvalue_manual(all.stat %>% filter(Time.Point == "T1" |
+                                            Time.Point == "T2" |
+                                            Time.Point == "T3"),
+                     hide.ns = TRUE,
+                     tip.length = 0,step.increase = 0,size = 5)+ #filter for if there was a significant difference +/- phosphorus in each time point+
+  stat_pvalue_manual(all.stat %>% filter(Time.Point == "time"),
+                     hide.ns = TRUE,
+                     tip.length = 0,
+                     step.increase = 0.05,size = 7)+
+  scale_y_continuous(
+    labels = function(x) format_superscript(x)
+  )+
+  theme(axis.text.y = ggtext::element_markdown(),
+        text = element_text(size = 20))+
+    ## space for labels + allow drawing outside panel
+  coord_cartesian(clip = "off") +
+  theme(plot.margin = margin(t = 5, r = 5, b = 28, l = 5),
+        axis.title.x = element_text(margin = margin(t = 38))) +
+
+  ## Dry/Wet bar under the x-axis (factor positions: T0=1, T1=2, T2=3, T3=4)
+  annotation_custom(
+    grid::linesGrob(x = unit(c(0.0, 0.25), "npc"),
+                    y = unit(c(-0.09, -0.09), "npc"),
+                    gp = grid::gpar(col = "burlywood4", lwd = 4))
+  ) +
+  annotation_custom(
+    grid::linesGrob(x = unit(c(0.25, 1.0), "npc"),
+                    y = unit(c(-0.09, -0.09), "npc"),
+                    gp = grid::gpar(col = "darkblue", lwd = 4))
+  )+   # blue
+
+  ## Labels for the bars
+  annotate("text", x = 1.0, y = -Inf, label = "Dry",
+           vjust = 3.7, size = 6, fontface = "bold", colour = "burlywood4") +
+  annotate("text", x = 3, y = -Inf, label = "Wet",
+           vjust = 3.7, size = 6, fontface = "bold", colour = "darkblue")
+
+
+library(Cairo)
+
+# Mean of virocells +/- phosphorus
+df.virocells.long %>% 
+  filter(grepl("da",virus.per.cell)) %>% 
+  mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)) %>% 
+  filter(virus.per.cell == 200,
+         Time.Point != "T0") %>% 
+  group_by(Phosphorus) %>% 
+  summarize(mean.virocells = mean(Virocells.g),
+            sd.virocells = sd(Virocells.g))
+```
+
+
+```{r}
+library(patchwork)
+virions.virocells <- virions.virome+virions.metat.200+plot_layout(axes = "collect",guides = "collect")+plot_annotation(tag_levels = 'A')
+
+ggsave(plot =virions.virocells, "../figures/figure4.svg",height = 6, width = 12 )
+ggsave(plot =virions.virocells, "../figures/figure4.png",height = 6, width = 12 )
+```
+
+# Supplamentary figure 2
+```{r supp figures}
+
+virions.metat <- ggplot(df.virocells.long %>% 
+                          filter(grepl("da",virus.per.cell)) %>% 
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)),aes(x=Time.Point,y=Virocells/0.5,color = Phosphorus))+
+  geom_smooth(aes(group = Phosphorus,fill = Phosphorus))+
+  facet_wrap(~virus.per.cell, scales = "free_y")+
+  scale_color_manual(values= col.lnll)+
+  scale_fill_manual(values= col.lnll)+
+theme_classic2()+
+  xlab("Time (Weeks)")+
+  ylab("Virocells per Gram of Soil")+
+  labs(fill = "Treatment",
+       color = "Treatment")+
+  scale_y_continuous(
+    labels = function(x) format_superscript(x)
+  )+
+  theme(axis.text.y = element_markdown())
+
+labels.p <- df.virocells.long %>%
+    filter(grepl("da", virus.per.cell), Phosphorus == "Phosphorus") %>%
+    mutate(virus.per.cell = gsub("da\\.", "", virus.per.cell)) %>%
+    group_by(virus.per.cell) %>%
+    summarize(
+        x = max(Time.Point), 
+        y = log10(Virocells[Time.Point == max(Time.Point)]/0.5)
+    ) %>% 
+         group_by(virus.per.cell,x) %>% 
+         summarise(y = median(y),.groups = "drop")
+
+p.metat <- ggplot(df.virocells.long %>% 
+                          filter(grepl("da",virus.per.cell),
+                                 Phosphorus == "Phosphorus") %>% 
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)),aes(x=Time.Point,y=log10(Virocells/0.5),color = virus.per.cell))+
+  geom_smooth(aes(group = virus.per.cell,fill = virus.per.cell))+
+  facet_wrap(~Phosphorus, scales = "free_y")+
+  scale_color_manual(values= c("1" = "#800F24",
+                               "5" = "#931426",
+                               "10" = "#A71930",
+                               "50" = "#C04A5A",
+                               "100" = "#D98A93",
+                               "200" = "#EAB8BD"
+                               ))+
+  scale_fill_manual(values= c("1" = "#800F24",
+                               "5" = "#931426",
+                               "10" = "#A71930",
+                               "50" = "#C04A5A",
+                               "100" = "#D98A93",
+                               "200" = "#EAB8BD"
+                              ))+
+theme_classic2()+
+  xlab("Time (Weeks)")+
+  ylab("log10(Virocells per gram of soil)")+
+  labs(fill = "Phosphorus (Viruses/Cell)",
+       color = "Phosphorus (Viruses/Cell)")+
+  geom_text(data = labels.p, 
+            aes(x = x, y = y, label = virus.per.cell, color = virus.per.cell), 
+            hjust = -0.1, 
+            size = 4) + # Adjust `size` as needed
+  theme(legend.position = "none") # Optional: remove legend if redundant
+  # geom_vline(xintercept = 1.1, 
+  #            color = "deepskyblue3",
+  #            linetype = "longdash")
+
+p.meta.all <- df.virocells.long %>% 
+                          filter(grepl("da",virus.per.cell),
+                                 Phosphorus == "Phosphorus") %>% 
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell))
+
+labels.no.p <- df.virocells.long %>%
+    filter(grepl("da", virus.per.cell), Phosphorus == "No Phosphorus") %>%
+    mutate(virus.per.cell = gsub("da\\.", "", virus.per.cell)) %>%
+    group_by(virus.per.cell) %>%
+    summarize(
+        x = max(Time.Point), 
+        y = log10(Virocells[Time.Point == max(Time.Point)]/0.5)
+    ) %>% 
+         group_by(virus.per.cell,x) %>% 
+         summarise(y = median(y),.groups = "drop")
+
+no.p.metat <- ggplot(df.virocells.long %>% 
+                          filter(grepl("da",virus.per.cell),
+                                 Phosphorus == "No Phosphorus") %>% 
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)),aes(x=Time.Point,y=log10(Virocells/0.5),color = virus.per.cell))+
+  geom_smooth(aes(group = virus.per.cell,fill = virus.per.cell))+
+  facet_wrap(~Phosphorus, scales = "free_y")+
+  scale_color_manual(values= c("1" = "gray30",
+                               "5" = "gray40",
+                               "10" = "gray50",
+                               "50" = "gray60",
+                               "100" = "gray70",
+                               "200" = "gray80"
+                               ))+
+  scale_fill_manual(values= c("1" = "gray30",
+                               "5" = "gray40",
+                               "10" = "gray50",
+                               "50" = "gray60",
+                               "100" = "gray70",
+                               "200" = "gray80"
+                              ))+
+theme_classic2()+
+  xlab("Time (Weeks)")+
+  ylab("log10(Virocells per gram of soil)")+
+  labs(fill = "No Phosphorus (Viruses/Cell)",
+       color = "No Phosphorus (Viruses/Cell)")+
+  geom_text(data = labels.no.p, 
+            aes(x = x, y = y, label = virus.per.cell, color = virus.per.cell), 
+            hjust = -0.1, 
+            size = 4) + # Adjust `size` as needed
+  theme(legend.position = "none") # Optional: remove legend if redundant
+
+no.p.meta.all <- df.virocells.long %>% 
+                          filter(grepl("da",virus.per.cell),
+                                 Phosphorus == "Phosphorus") %>% 
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell))
+
+#combine the figures
+no.p.metat+p.metat+plot_layout(axes = "collect",guides = "collect")
+
+ggsave("../figures/Supplamentaryfigure2.png")
+
+## Stats ##
+
+gam_mod.p <- mgcv::gam(log10(Virocells.g) ~ virus.per.cell * Time.Point,
+                     method = "REML",
+                     data=p.meta.all)
+
+
+gam_mod.no.p <- mgcv::gam(log10(Virocells.g) ~ virus.per.cell * Time.Point,
+                     method = "REML",
+                     data=no.p.meta.all)
+
+all.gam <- mgcv::gam(log10(Virocells.g) ~ virus.per.cell * Time.Point*trt,
+                     method = "REML",
+                     data = rbind(p.meta.all %>% 
+                                    mutate(trt = "Phosphorus"),
+                                  no.p.meta.all %>% 
+                                    mutate(trt = "No Phosphorus")))
+
+anova(gam_mod.p)
+anova(gam_mod.no.p)
+anova(all.gam)
+```
