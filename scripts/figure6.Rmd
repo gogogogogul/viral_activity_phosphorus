@@ -746,97 +746,108 @@ ggsave(fig6, filename = "../figures/figure6.svg", width = 14, height = 11, dpi =
 # Supp Figure
 ```{r}
 metat.actins <- metat.abundance %>%
-rownames_to_column("virus") %>%
-filter(virus %in% host.phyla$virus) %>%  #filter to only viruses with hosts
-column_to_rownames(var = "virus") %>%
-filter(rowSums(.) != 0) %>%   # Remove rows where all values are 0
-select(where(~ sum(.) != 0)) %>%  # Remove columns where all values are 0
-rownames_to_column(var = "virus") %>%
-left_join(host.phyla, by = "virus", relationship = "many-to-many")%>%
-filter(phylum == "p__Actinomycetota") %>%
-select(-phylum) %>%
-column_to_rownames("virus") %>%
-relabund() %>%
-t() %>%
-as.data.frame() %>%
-rownames_to_column("sample") %>%
-pivot_longer(cols = -sample,
-names_to = "vOTU",
-values_to = "relative_abundance") %>%
-mutate(timepoint = case_when(
-grepl("T0",sample) ~ "T0",
-grepl("T1",sample) ~ "T1",
-grepl("T2",sample) ~ "T2",
-grepl("T3",sample) ~ "T3"
-),
-dry_wet = ifelse(
-grepl("T0",sample),"Dry","Wet"
-)) %>%
-filter(relative_abundance > 0)
+  rownames_to_column("virus") %>%
+  filter(virus %in% host.phyla$virus) %>%  #filter to only viruses with hosts
+  column_to_rownames(var = "virus") %>%
+  filter(rowSums(.) != 0) %>%   # Remove rows where all values are 0
+  select(where(~ sum(.) != 0)) %>%  # Remove columns where all values are 0
+  rownames_to_column(var = "virus") %>%
+  left_join(host.phyla, by = "virus", relationship = "many-to-many")%>%
+  filter(phylum == "p__Actinomycetota") %>%
+  select(-phylum) %>%
+  column_to_rownames("virus") %>%
+  relabund() %>%
+  t() %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  pivot_longer(cols = -sample,
+    names_to = "vOTU",
+    values_to = "relative_abundance") %>%
+  mutate(timepoint = case_when(
+      grepl("T0",sample) ~ "T0",
+      grepl("T1",sample) ~ "T1",
+      grepl("T2",sample) ~ "T2",
+      grepl("T3",sample) ~ "T3"
+      ),
+   dry_wet = ifelse(
+     grepl("T0",sample),"Dry","Wet"
+     )) %>%
+  filter(relative_abundance > 0)
 
 
 #Number of unique votus in dry samples
-metat.actins %>% filter(timepoint == "T0") %>% pull(vOTU) %>% unique() %>% length()
+metat.actins %>% 
+  filter(timepoint == "T0") %>% 
+  pull(vOTU) %>% 
+  unique() %>% 
+  length()
 ## Number of unique votus in wet samples
-metat.actins %>% filter(dry_wet == "Wet") %>% pull(vOTU) %>% unique() %>% length()
+metat.actins %>% 
+  filter(dry_wet == "Wet") %>% 
+  pull(vOTU) %>% 
+  unique() %>% 
+  length()
 ## Number of T0 votus found in all other time points
 t0.votus <- metat.actins %>%
-filter(timepoint == "T0") %>%
-pull(vOTU) %>%
-unique()
+  filter(timepoint == "T0") %>%
+  pull(vOTU) %>%
+  unique()
 
 metat.actins %>%
-filter(vOTU %in% t0.votus,
-timepoint != "T0") %>%
-pull(vOTU) %>%
-unique() %>%
-length()
+  filter(vOTU %in% t0.votus,
+    timepoint != "T0") %>%
+  pull(vOTU) %>%
+  unique() %>%
+  length()
 
 # Number of votus found in all time points
 votus_all_timepoints <- metat.actins %>%
-group_by(vOTU) %>%
-summarise(
-n_timepoints = n_distinct(timepoint),
-.groups = "drop"
-) %>%
-filter(n_timepoints == n_distinct(metat.actins$timepoint))
+  group_by(vOTU) %>%
+  summarise(
+    n_timepoints = n_distinct(timepoint),
+    .groups = "drop"
+    ) %>%
+  filter(n_timepoints == n_distinct(metat.actins$timepoint))
 
-votus_all_timepoints %>% pull(vOTU) %>% unique() %>% length()
+votus_all_timepoints %>% 
+  pull(vOTU) %>% 
+  unique() %>% 
+  length()
 
 ## 1) Venn by timepoint
 sets_timepoint <- metat.actins %>%
-distinct(timepoint, vOTU) %>%                 # presence/absence only
-group_by(timepoint) %>%
-summarise(vOTUs = list(unique(vOTU)), .groups = "drop") %>%
-{ setNames(.$vOTUs, .$timepoint) }            # named list for Venn
+  distinct(timepoint, vOTU) %>%                 # presence/absence only
+  group_by(timepoint) %>%
+  summarise(vOTUs = list(unique(vOTU)), .groups = "drop") %>%
+  { setNames(.$vOTUs, .$timepoint) }            # named list for Venn
 
 mp_timepoint <- ggVennDiagram::ggVennDiagram(sets_timepoint, label_alpha = 0.3) +
-labs(subtitle = "Shared vOTUs predicted to infect\nActinomycetota by time point")+
-scale_fill_distiller(palette = "Set3",
+  labs(subtitle = "Shared vOTUs predicted to infect\nActinomycetota by time point")+
+  scale_fill_distiller(palette = "Set3",
                      direction =1)+
-theme(legend.position = "none")
+  theme(legend.position = "none")
 
 ## 2) Venn by dry_wet
 sets_drywet <- metat.actins %>%
-distinct(dry_wet, vOTU) %>%
-group_by(dry_wet) %>%
-summarise(vOTUs = list(unique(vOTU)), .groups = "drop") %>%
-{ setNames(.$vOTUs, .$dry_wet) }
+  distinct(dry_wet, vOTU) %>%
+  group_by(dry_wet) %>%
+  summarise(vOTUs = list(unique(vOTU)), .groups = "drop") %>%
+  { setNames(.$vOTUs, .$dry_wet) }
 
 mp_drywet <- ggVennDiagram::ggVennDiagram(sets_drywet, label_alpha = 0.2) +
-labs(
-subtitle = "Shared vOTUs predicted to infect\nActinomycetota in dry and post–wet-up soils"
+  labs(
+    subtitle = "Shared vOTUs predicted to infect\nActinomycetota in dry and post–wet-up soils"
 )+
-scale_fill_distiller(palette = "Spectral")+
-theme(legend.position = "none")
+  scale_fill_distiller(palette = "Spectral")+
+  theme(legend.position = "none")
 
 m_shared.actin.votus <- ggpubr::ggarrange(mp_drywet+mp_timepoint
                                           # labels = "Transcriptionally Active",
                                           # hjust = -0.35
                                           )
 
-ggsave(plot = m_shared.actin.votus,"./actinomycetota.shared.votus.metat.png",width =12)
-ggsave(plot = m_shared.actin.votus,"./actinomycetota.shared.votus.metat.svg",width =12)
+# ggsave(plot = m_shared.actin.votus,"../figures/supplementary_fig5.png",width =12)
+# ggsave(plot = m_shared.actin.votus,"./figures/supplementary_fig5.svg",width =12)
 
 all.actins.fig <- ggarrange(shared.actin.votus,m_shared.actin.votus,
 # common.legend = TRUE,

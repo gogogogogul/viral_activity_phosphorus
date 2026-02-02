@@ -78,7 +78,8 @@ format_superscript <- function(x) {
 ```
 
 
-#Need to do a strand corrected weight for. THe Da weight is calculated for a single stand of dna, if it is dsDNA or unassigned going to muplitple by 2
+#Strand Corrected Weight
+Need to do a strand corrected weight for. THe Da weight is calculated for a single stand of dna, if it is dsDNA or unassigned going to muplitple by 2
 ```{r}
 #add the weight in kDAa to the dataframe
 votu.metadata <- votu.metadata %>% 
@@ -87,6 +88,8 @@ votu.metadata <- votu.metadata %>%
                                  Estimated.Weight..Da.))
 ```
 
+# Mapped reads
+## Virome
 Calculate the number of reads that were mapped to a vOTU (viral reads)
 ```{r}
 #convert the virome table to +/- # This will make sure that the votu had a breath >= 75% 
@@ -104,13 +107,14 @@ rownames(total.virome.counts) <- paste(rownames(total.virome.counts),"virome",se
 
 #add to the lentght data
 virome.mapped <- merge(virome.mapped,total.virome.counts, by.x = "row.names", by.y = "row.names")
+
 ```
 
-Get Virome [DNA]
+# Get Virome [DNA]
 
 ```{r}
 dna.conc.virome <- dna.conc %>%
-  left_join(virome.mapped,by = c("Samples"="Row.names")) %>% # convert mapped reads into a % (This is read mapped to a vOTU)
+  left_join(virome.mapped,by = c("Samples"= "Row.names")) %>% # convert mapped reads into a % (This is read mapped to a vOTU)
   mutate(mapped.pct = virome.counts/total.reads, # convert mapped reads into a % (This is read mapped to a vOTU)
          viral.dna.ng = dna.ng*mapped.pct) %>%  #then multiple the DNA by the mapped % to get viral DNA
   filter(Samples != "T3H218O_Avirome") #Remove this samples because there was not enough soil to extract/sequence
@@ -269,8 +273,8 @@ virions.virome <- ggplot(dna.conc.virome,aes(x=Time.Point,y=virions.da.g, #divid
            vjust = 3.7, size = 6, fontface = "bold", colour = "darkblue")
 ```
 
-### METAT STUFF ###
-# Get the amount of reads that mapped  active viruses
+# Transcriptionally active
+## Mapped reads
 ```{r}
 #convert the active viruses table to +/- # This will make sure that the votu had a breath >= 75% 
 metat.table[metat.table > 0] <- 1
@@ -504,6 +508,17 @@ df.virocells.long %>%
   filter(virus.per.cell == 200,
          Time.Point != "T0") %>% 
   group_by(Phosphorus) %>% 
+  summarize(mean.virocells = mean(Virocells.g),
+            sd.virocells = sd(Virocells.g))
+
+# Mean of virocells time point
+df.virocells.long %>% 
+  filter(grepl("da",virus.per.cell)) %>% 
+  mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)) %>% 
+  filter(virus.per.cell == 200,
+         # Time.Point != "T0"
+         ) %>% 
+  group_by(Time.Point) %>% 
   summarize(mean.virocells = mean(Virocells.g),
             sd.virocells = sd(Virocells.g))
 ```

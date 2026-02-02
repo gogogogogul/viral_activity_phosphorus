@@ -91,7 +91,6 @@ alpha.diversity <- function(df){
 # Data
 ```{r}
 #load data
-
 virome.votu.table <- read.csv("../Data/normalized_abundance_tables/bulk_virome_normalized_table.csv",row.names = 1)
 
 virome.metadata <- read.csv("../Data/metadata/bulk_metadata.csv",row.names = "SampleID") %>% 
@@ -459,7 +458,7 @@ set.seed(1990)
 adonis2(as.dist(virome.dist)~Timepoint,data=virome.axes, by = "terms")
 adonis2(as.dist(virome.dist)~Phosphorus,data=virome.axes, by = "terms")
 adonis2(as.dist(virome.dist)~wetup,data=virome.axes, by = "terms")
-adonis2(as.dist(virome.dist)~Phosphorus*Timepoint,data=virome.axes, by = "terms")
+adonis2(as.dist(virome.dist)~Timepoint*,data=virome.axes, by = "terms")
 
 
 pairwise.adonis(as.dist(virome.dist),virome.axes$Timepoint)
@@ -552,6 +551,18 @@ adonis2(as.dist(metat.dist)~Phosphorus*Timepoint,data=metat.axes, by = "terms")
 pairwise.adonis(as.dist(metat.dist),metat.axes$Timepoint)
 pairwise.adonis(as.dist(metat.dist),metat.axes$Phosphorus)
 pairwise.adonis(as.dist(metat.dist),metat.axes$wetup)
+
+# Test phosphorus effect at each timepoint
+dist_ <- metat.dist[,grepl("P",colnames(metat.dist))]
+dist_ <- dist_[grepl("P",rownames(dist_)),]
+meta.data_ <- metat.axes %>% filter(Phosphorus=="Phosphorus")
+pairwise.adonis(as.dist(dist_),meta.data_$Timepoint)
+
+# Test no phosphorus effect at each timepoint
+dist_ <- metat.dist[,!grepl("P|Dry",colnames(metat.dist))]
+dist_ <- dist_[!grepl("P|Dry",rownames(dist_)),]
+meta.data_ <- metat.axes %>% filter(Phosphorus=="No Phosphorus")
+pairwise.adonis(as.dist(dist_),meta.data_$Timepoint)
 
 ```
 

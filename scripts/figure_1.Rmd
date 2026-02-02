@@ -263,11 +263,7 @@ df_ <- virome.m.data %>%
   mutate(Source = "Virome") %>% 
   bind_rows(metat.m.data%>%
     mutate(Source = "Metatranscriptome")
-    ) 
-      # mutate(dry.wet = ifelse(
-      # Timepoint == "T0",
-      # "Dry",
-      # "Wet-Up"))
+    )
 
 df <- df_
 x <- "Source"
@@ -444,14 +440,6 @@ combine.axes$Timepoint <- as.factor(combine.axes$Timepoint)
 set.seed(1990)
 combine.axes$source <- as.factor(combine.axes$source)
 adonis2(as.dist(combine.dist)~source,data=combine.axes, by = "terms")
-adonis2(as.dist(combine.dist)~Timepoint,data=combine.axes, by = "terms")
-adonis2(as.dist(combine.dist)~Phosphorus,data=combine.axes, by = "terms")
-adonis2(as.dist(combine.dist)~Phosphorus*Timepoint,data=combine.axes, by = "terms")
-adonis2(as.dist(combine.dist)~source*Timepoint,data=combine.axes, by = "terms")
-
-
-pairwise.adonis(as.dist(combine.dist),combine.axes$Timepoint)
-pairwise.adonis(as.dist(combine.dist),combine.axes$Phosphorus)
 
 hull <- combine.axes %>% 
   group_by(Timepoint) %>% 
