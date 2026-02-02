@@ -1,0 +1,557 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(ggpubr)
+library(tidyverse)
+library(llnl)
+library(patchwork)
+library(ComplexHeatmap)
+library(rstatix)
+```
+# Load Data
+```{r}
+metadata <- read.csv("../Data/metag_edna_dna_concentration.csv",header = TRUE,row.names = 1)
+
+# RNA concentrations
+rna.conc <- readRDS("../Data/metat.rna.conc.RDS") %>% 
+  rename(rna.conc.ng = Total.metaT.RNA..ng..2) %>% 
+  mutate(rna.ng.g.soil = rna.conc.ng / 0.5,
+         Samples = gsub("virome","",Samples)) # Normalize to g soil (0.5 g used for extraction)
+
+# Virome DNA concentrations
+virome.dna.conc <- readRDS("../Data/jgi.final.dna.conc.RDS") %>% 
+  select(Samples,dna.ng) %>% 
+  rename(Virome.dna.ng = dna.ng) %>% 
+  mutate(Virome.dna.ng.g.soil = Virome.dna.ng / 10,
+         Samples = gsub("virome","",Samples)) # Normalize to g soil (10 g used for extraction)
+
+edna.abundance <- read.csv("../Data/normalized_abundance_tables/edna_normalized_table.csv",row.names = 1)
+rownames(edna.abundance) <- make.names(rownames(edna.abundance), unique = TRUE) #This remove special characters that or originally in the row names
+edna.abundance <- edna.abundance[rowSums(edna.abundance) > 0, ]
+
+virome.reads <- read.csv("../Data/normalized_abundance_tables/bulk_virome_normalized_table.csv",row.names = 1) 
+rownames(bulk.reads) <- make.names(rownames(bulk.reads), unique = TRUE) #This remove special characters that or originally in the row names
+metat.reads <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv",row.names = 1)
+rownames(metat.reads) <- make.names(rownames(metat.reads), unique = TRUE) #This remove special characters that or originally in the row names
+
+```
+
+#Functions
+```{r}
+collapse_to_presence <- function(mat, source_name) {
+  mat %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("vOTU") %>%
+    pivot_longer(
+      cols = -vOTU,
+      names_to = "SampleID",
+      values_to = "abund"
+    ) %>%
+    # tweak this extraction to match your naming scheme
+    mutate(
+      timepoint = str_extract(SampleID, "^T[0-9]+")
+    ) %>%
+    group_by(vOTU, timepoint) %>%
+    summarise(present = as.integer(any(abund > 0)), .groups = "drop") %>%
+    mutate(source = source_name)
+}
+```
+
+
+# Nucleic acid extraction methods
+```{r}
+nucleic.acid.conc <- metadata %>% 
+  rownames_to_column("Samples") %>%
+  full_join(rna.conc,by="Samples") %>% 
+  full_join(virome.dna.conc,by="Samples") %>% 
+  mutate(timepoint = substr(Samples,1,2)) %>% 
+  mutate(across(
+      where(is.numeric),
+      ~ as.numeric(scale(.)),
+      .names = "{.col}_z"
+    )) %>% 
+  pivot_longer(c(-Samples,-timepoint))
+
+# Plot nucleic acid concentrations by extraction method
+
+stat.df <- nucleic.acid.conc %>% 
+    filter(grepl("soil",name),
+           !grepl("_z",name),
+           !is.na(value)) %>% 
+  mutate(name = case_when(
+    name == "eDNA_ng.g.soil" ~ "eDNA",
+    name == "metag_ng.g.soil" ~ "Total Soil",
+    name ==  "Virome.dna.ng.g.soil" ~ "Virome",
+    name == "rna.ng.g.soil" ~ "Metatranscriptome",
+    TRUE ~ name
+  )) %>%
+  mutate(phosphorus = ifelse(grepl("P",Samples),"Phosphorus","No Phosphorus"))
+
+lm.model <- lm((value) ~ timepoint, data = stat.df)
+shapiro.test(lm.model$residuals)
+
+#Not normal will do kruskal wallis
+kruskal.test(value ~ timepoint, data = stat.df)
+# Post-hoc test
+stat.df.fig <- stat.df %>% 
+  group_by(name) %>%
+  rstatix::dunn_test(value ~ timepoint, data = ., p.adjust.method = "fdr") %>%
+  filter(p.adj <= 0.05) %>%
+  rstatix::add_xy_position(x = "timepoint",
+                           # group = "name"
+                           ) %>% 
+  mutate(y.position = case_when(
+    grepl("Virome",name) & group1 == "T0" & group2 == "T3" ~ 16,
+    grepl("Virome",name) & group1 == "T1" & group2 == "T2" ~ 19,
+    grepl("Virome",name) ~ y.position/700,
+    grepl("eDNA",name) & group1 == "T0" & group2 == "T3" ~ 2200,
+    grepl("eDNA",name) & group1 == "T1" & group2 == "T2" ~ 2400,
+    grepl("eDNA",name) ~ 2000,
+    grepl("metag",name) & group1 == "T0" & group2 == "T3" ~ 39000,
+    grepl("metag",name) & group1 == "T1" & group2 == "T2" ~ 41000,
+    grepl("metag",name) & group1 == "T1" & group2 == "T3" ~ 43000,
+    grepl("metag",name) ~ 37000,
+    TRUE ~ y.position)
+  )
+
+dna.conc.fig <- nucleic.acid.conc %>% 
+    filter(grepl("soil",name),
+           !grepl("_z",name)) %>% 
+  mutate(name = case_when(
+    name == "eDNA_ng.g.soil" ~ "eDNA",
+    name == "metag_ng.g.soil" ~ "Total Soil",
+    name ==  "Virome.dna.ng.g.soil" ~ "Virome",
+    name == "rna.ng.g.soil" ~ "Metatranscriptome",
+    TRUE ~ name
+  ))  %>% 
+    ggboxplot(x = "timepoint", y = "value", color = "name",outliers = FALSE)+
+    ggpubr::stat_pvalue_manual(stat.df.fig, 
+                               label = "p.adj.signif",
+                              tip.length = 0,
+                              hide.ns = TRUE)+
+    geom_jitter(aes(x=timepoint, y=value,color = name), alpha=0.5,
+              position = position_jitterdodge(
+      jitter.width = 0.55,
+      dodge.width  = 0.75
+    ))+
+    facet_wrap(~name, scales = "free_y")+
+    xlab("Time point (Weeks)")+
+    ylab(expression("Nucleic acid concentration (ng g"^{-1}*" soil)"))+
+  theme(legend.position = "none")+
+  scale_color_manual(values = c(col.lnll, "eDNA" = "khaki3","Total Soil" = "pink2"))
+
+#stats
+stat.df <- nucleic.acid.conc %>% 
+    filter(
+           grepl("soil_z",name)) %>% 
+  mutate(phosphorus = ifelse(grepl("P",Samples),"Phosphorus","No Phosphorus"))
+
+summary_df <- nucleic.acid.conc %>%
+  filter(
+    grepl("soil", name),
+    !grepl("_z", name)
+  ) %>%
+  group_by(timepoint, name) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    sd_value   = sd(value, na.rm = TRUE),
+    .groups = "drop"
+  )%>% 
+  mutate(name = case_when(
+   grepl("eDNA",name) ~ "eDNA",
+   grepl("metag",name)  ~ "Total soil DNA",
+   grepl("Virome",name) ~ "Virome",
+  grepl("rna",name) ~ "Metatranscriptome",
+    TRUE ~ name
+  ))
+
+## virome on second y axis
+# split data
+df_bar <- summary_df %>%
+  filter(name %in% c("Virome")) %>%
+  mutate(y = log10(mean_value),
+         ymin = log10(mean_value - sd_value),
+         ymax = log10(mean_value + sd_value))
+
+df_line <- summary_df %>%
+  filter(name %in% c("Total soil DNA", "Metatranscriptome","eDNA")) %>%
+  mutate(y = log10(mean_value),
+         ymin = log10(mean_value - sd_value),
+         ymax = log10(mean_value + sd_value))
+
+
+### Stats ###
+### Make the df for stats
+stat.df <- nucleic.acid.conc %>% 
+    filter(grepl("soil",name),
+           !grepl("_z",name),
+           !is.na(value)) %>% 
+  mutate(name = case_when(
+    name == "eDNA_ng.g.soil" ~ "eDNA",
+    name == "metag_ng.g.soil" ~ "Total soil DNA",
+    name ==  "Virome.dna.ng.g.soil" ~ "Virome",
+    name == "rna.ng.g.soil" ~ "Metatranscriptome",
+    TRUE ~ name
+  ))
+
+### First check to see if a linear model is appropriate
+sapply(unique(stat.df$name), function(x) {
+  df_ <- stat.df %>% filter(name == x) # Select for samples by nucleic acid source
+  model <- lm(value ~ timepoint, data = df_)
+  print(paste0("Shapiro test for:",x))
+  shapiro.test(model$residuals)
+})
+
+### Metagenome is not normal lets see if we log/sqrt transform helps
+model <- lm(sqrt(value) ~ timepoint, data = stat.df %>% filter(name == "Total soil DNA"))
+shapiro.test(model$residuals) # neither transformation help will run KW on Total soil DNA
+
+### First run test on all non metag samples
+normal.stats <- do.call(rbind,
+        lapply(
+    unique(stat.df$name[stat.df$name != "Total soil DNA"]),
+    function(x) {
+      df_ <- stat.df %>% filter(name == x) # Select for samples by nucleic acid source
+      lm.mod <- lm(value ~ timepoint, data = df_)
+      aov.mod <- aov(lm.mod)
+      tukey.df <- tukey_hsd(aov.mod) %>% 
+        mutate(na.source = x) %>% 
+        select(-conf.low,
+               -conf.high,
+               -null.value) # remove to match other dataframe
+    }
+  ))
+
+
+## Run KW on total soil DNA
+kruskal_test(value ~ timepoint, data = stat.df[stat.df$name == "Total soil DNA",])
+non.normal.test <- dunn_test(value ~ timepoint, data = stat.df[stat.df$name == "Total soil DNA",], p.adjust.method = "fdr") %>% 
+  mutate(na.source = "Total soil DNA") %>% 
+  rename(term = `.y.`,
+         estimate = statistic) %>% # make column names match with other stat dataframe
+  select(-n1,-n2,-p) # remove to match other dataframe
+
+all.stats <- rbind(normal.stats, non.normal.test)
+
+## Generate CLD 
+cld.non.normal <- all.stats %>%
+  mutate(comparison = paste(group1, group2, sep = "-")) %>%
+  group_by(na.source) %>%
+  summarise(
+    cld = list(multcompView::multcompLetters(setNames(p.adj, comparison))$Letters),
+    .groups = "drop"
+  ) %>%
+  unnest_wider(cld) %>%          # columns named like T0, T1, ...
+  pivot_longer(
+    cols = -na.source,
+    names_to = "timepoint",
+    values_to = "cld"
+  )
+  
+df_bar <- df_bar %>%
+  mutate(
+    y2    = y*3,
+    ymin2 = (ymin )*3,
+    ymax2 = (ymax )*3
+  ) %>%
+  filter(name == "Virome") %>%
+  left_join(
+    cld.non.normal %>% filter(na.source == "Virome"),
+    by = c("timepoint" = "timepoint")
+  ) %>%
+  mutate(
+    y_label = ymax2 + 0.2  # vertical offset
+  )
+
+df_line <- df_line %>%
+  left_join(
+    cld.non.normal,
+    by = c("name" = "na.source", "timepoint" = "timepoint")
+  ) %>%
+  mutate(y_label = ymax + 0.2)
+
+pd <- position_dodge(width = 0.3)
+
+conc.fig.log.virome <- ggplot() +
+  # bars (primary / left axis)
+  geom_col(
+    data = df_bar,
+    aes(x = timepoint, y = y2, fill = name),
+    position = pd,
+    width = 0.7,
+    alpha = 0.7,
+    show.legend = FALSE
+  ) +
+  geom_text(
+    data = df_bar,
+    aes(x = timepoint, 
+        y = y_label, 
+        label = cld,
+        color = name),
+    inherit.aes = FALSE,
+    size = 3,
+    show.legend = FALSE
+  ) +
+  geom_text(
+    data = df_line,
+    aes(x = timepoint, 
+        y = y_label, 
+        label = cld,
+        group = name,
+        color = name),
+    inherit.aes = FALSE,
+    size = 3,
+    position = pd,
+    show.legend = FALSE
+  )+
+  geom_line(
+    data = df_line,
+    aes(x = timepoint, y = y, color = name, group = name),
+    linewidth = 1,
+    position = pd,
+  ) +
+  geom_point(
+    data = df_line,
+    aes(x = timepoint, y = y, color = name),
+    size = 2,
+    position = pd,
+    show.legend = FALSE
+  ) +
+  geom_errorbar(
+    data = df_line,
+    aes(x = timepoint, ymin = ymin, ymax = ymax, color = name),
+    width = 0.15,
+    position = pd,
+  ) +
+  geom_errorbar(
+    data = df_bar,
+    aes(x = timepoint, ymin = ymin2, ymax = ymax2, color = name),
+    position = pd,
+    width = 0.15,
+    show.legend = FALSE
+  ) +
+  # lines (secondary / right axis, plotted on primary after transform)
+  scale_y_continuous(
+    limits = c(0,4.7),
+    breaks = (seq(0,4.5,0.5)),
+    expand = c(0, 0),
+    name = "log10 nucleic acid\n(ng per gram of soil)",
+    sec.axis = sec_axis(
+      breaks = seq(0, 1.5, 0.25),
+      ~ (.) /3,
+      name = "log10 virome DNA\n(ng per gram of soil)"
+    ))+
+      guides(
+        color = guide_legend(
+          nrow = 2,
+          byrow = TRUE,
+          override.aes = list(linewidth = 1.2)
+  )) +
+  geom_line(
+  data = data.frame(
+    timepoint = "T0",
+    y2 = NA,
+    name = "Virome"
+  ),
+  aes(x = timepoint, y = y2, color = name),
+  linewidth = 1,
+  inherit.aes = FALSE
+)+
+  xlab("Time point (weeks)") +
+  theme_pubr() +
+  scale_fill_manual(values = c(col.lnll, "eDNA" = "khaki3", "Total soil DNA" = "pink2")) +
+  scale_color_manual(values = c(col.lnll, "eDNA" = "khaki3", "Total soil DNA" = "pink2"))+
+  labs(color = "Nucleic acid source")
+
+```
+
+# Heatmap
+```{r}
+edna.heatmap.df <- edna.abundance %>% 
+  t() %>% 
+  data.frame() %>% 
+  rownames_to_column("sample") %>%
+  mutate(timepoint = substr(sample,1,2),
+         time.phosphorus = ifelse(timepoint == "T0","T0",
+                                  ifelse(grepl("P",sample),paste0(timepoint," P+"),paste0(timepoint," P-")))) %>% 
+  select(-sample,-timepoint) %>% 
+  group_by(time.phosphorus) %>% 
+  summarise(
+    across(where(is.numeric), mean, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% 
+  column_to_rownames("time.phosphorus")%>% 
+  t() %>% 
+  data.frame(check.names = FALSE)
+
+edna.heatmap.df <- edna.heatmap.df[rowSums(edna.heatmap.df) > 0, ]
+
+df__ <- edna.heatmap.df
+# Extract timepoint from column names
+timepoint <- substr(colnames(df__), 1, 2)
+phosphorus <- ifelse(grepl("T0",colnames(df__)),"Dry",ifelse(grepl("P\\+",colnames(df__)),"P+","P-"))
+
+# Make it a factor (important for ordering & legend)
+timepoint <- factor(timepoint, levels = c("T0", "T1", "T2", "T3"))
+phosphorus <- factor(phosphorus, levels = c("Dry", "P+", "P-"))
+
+# Get colors for time points
+tp_cols <- col.lnll[c("T0", "T1", "T2", "T3")]
+p_cols <- c(
+  "Dry" = unname(col.lnll["Dry"]),
+  "P+"  = unname(col.lnll["Phosphorus"]),
+  "P-"  = unname(col.lnll["No Phosphorus"])
+)
+
+# Get min and max for legend
+v_min <- log10(min(df__[df__ > 0]))
+v_max <- log10(max(df__))
+
+col_fun <- circlize::colorRamp2(
+  c(
+    log10(1e-6),
+    v_min,
+    v_min + 0.45 * (v_max - v_min),  # 👈 tight transition
+    v_max
+  ),
+  c(
+    "white",
+    "yellow2",
+    "deepskyblue",
+    "deepskyblue4"
+  )
+)
+
+## Annotations
+col_ha2 <- HeatmapAnnotation(
+  `Time Point` = timepoint,
+  Phosphorus   = phosphorus,
+  col = list(`Time Point` = tp_cols,
+             Phosphorus   = p_cols),
+  annotation_height = unit(4, "mm"),
+  show_legend = FALSE     # <- no annotation legends
+)
+
+edna_heatmap <- Heatmap(
+  log10(edna.heatmap.df + 1e-6),
+  name = "log10(Mean abundance)",
+  col = col_fun,
+  show_row_names = FALSE,
+  cluster_columns = FALSE,
+  show_column_dend = FALSE,
+  column_split = timepoint,
+  column_gap = unit(1, "mm"),
+  bottom_annotation = col_ha2,
+  column_title = "Samples",
+  column_title_side = "bottom",
+  column_names_rot = 45,
+  row_title = "vOTUs",
+  row_title_rot = 90, 
+  cluster_rows = TRUE,
+  show_heatmap_legend = TRUE,
+  heatmap_legend_param = list(
+  legend_height = unit(60, "mm"),
+    at = c(-5, -3,0,2), # when not using custom legend labels, it alreadys uses 2 as max
+    labels = c(-5,-3, 0, 2)
+  )
+)
+
+```
+
+# Bar chart
+```{r}
+source_colors <- c(
+  "Virome only" = "#1D1160",
+  "Virome + Metatranscriptome" = "#F4A261", 
+  "Virome + eDNA" = "#E76F51",
+  "Virome +\nMetatranscriptome + eDNA" = "#F4D35E" 
+)
+
+all_pres <- bind_rows(
+  collapse_to_presence(virome.reads, "Virome"), 
+  collapse_to_presence(metat.reads,  "Metatranscriptome"), 
+  collapse_to_presence(edna.abundance,   "eDNA")) %>%
+  # wide: one row per vOTU × timepoint, columns = sources
+  pivot_wider(
+    id_cols  = c(vOTU, timepoint),
+    names_from  = source,
+    values_from = present,
+    values_fill = 0
+  )%>%
+  filter(rowSums(across(where(is.numeric))) > 0)
+
+
+df_virome <- all_pres %>%
+  filter(Virome == 1) %>%
+  mutate(
+    source_combo = case_when(
+      Metatranscriptome == 0 & eDNA == 0 ~ "Virome only",
+      Metatranscriptome == 1 & eDNA == 0 ~ "Virome + Metatranscriptome",
+      Metatranscriptome == 0 & eDNA == 1 ~ "Virome + eDNA",
+      Metatranscriptome == 1 & eDNA == 1 ~ "Virome +\nMetatranscriptome + eDNA"
+    ),
+    source_combo = factor(source_combo, levels = c("Virome + eDNA",
+                                                   "Virome +\nMetatranscriptome + eDNA",
+                                                   "Virome + Metatranscriptome",
+                                                   "Virome only"))
+  )
+
+
+df_bar <- df_virome %>%
+  distinct(timepoint, source_combo, vOTU) %>%
+  count(timepoint, source_combo)
+
+bar_fig <- ggplot(df_bar,
+       aes(x = timepoint,
+           y = n,
+           fill = source_combo)) +
+  geom_col(width = 0.7) +
+  scale_fill_manual(values = source_colors) +
+  labs(
+    y = "Number of virome-detected vOTUs",
+    x = "Time point (weeks)",
+    fill = "Mapped Reads Group"
+  ) +
+  theme_pubr()+
+  scale_y_continuous(expand = c(0, 0),
+                     limits = c(0, 15000),
+                         breaks = seq(0, 15000, by = 2500))+
+  theme(legend.position = "bottom")+
+  scale_x_discrete(expand = c(0.1, 0.1))+
+  guides(
+    fill = guide_legend(nrow = 2, byrow = TRUE)
+    )
+``` 
+
+
+# Bring it all together
+```{r}
+# turn the ComplexHeatmap into a grob
+
+grid::grid.newpage()
+ComplexHeatmap::draw(edna_heatmap, newpage = FALSE)  # keep it on this page
+ht_grob <- grid::grid.grab(wrap = TRUE)              # grab what’s on the page
+
+ht_as_gg <- ggplotify::as.ggplot(ht_grob)
+
+left.pan <- ggarrange(conc.fig.log.virome,bar_fig,
+                      ncol =1,
+                      labels = c("A","C")
+                      )
+final.fig <- ggarrange(left.pan, ht_as_gg, 
+                       ncol = 2,
+                       labels = c("","B"),
+                       widths = c(0.75,1))
+
+ggsave("../figures/figure5.png",
+       plot = final.fig,
+       width = 15.1,
+       height = 9,
+       dpi = 300)
+
+```
+

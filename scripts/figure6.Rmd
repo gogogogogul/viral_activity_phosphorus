@@ -1,0 +1,943 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(llnl)
+library(ggh4x)
+library(rstatix)
+library(ggpubr)
+library(vegan)
+library(phyloseq)
+```
+# Functions
+```{r}
+##Functions##
+relabund <- function(df, columns = c(NA)) 
+  #takes feature table and calculates relative abundance of columns, omitting NA's
+  #considers only columns listed in columns argument (character vector of column names). 
+  #columns (default) = all columns
+{
+  if (NA %in% columns){
+    df <- sweep(df, 2, colSums(df, na.rm = TRUE), '/')
+  }
+  else {
+    df_relabund <- df %>% select(all_of(columns)) %>%
+      sweep(., 2, colSums(., na.rm = TRUE), '/')
+    df[,columns] <- df_relabund
+  }
+  
+  return(df)
+}
+```
+
+
+# Colors
+```{r}
+pal.list <- list(Patescibacteria = "#A6CEE3",
+     Bdellovibrionota = "#33A02C",
+     Methylomirabilota = "#FB9A99",
+     Nitrospirota = "#FF7F00",
+     Actinomycetota = "#1F78B4", 
+     Thermoplasmatota = "#CAB2D6",
+     Spirochaetota = "#6A3D9A",
+     Bacillota = "#FFED6F",
+     Gemmatimonadota = "#B2DF8A",
+     Bacillota_A = "#E7298A", 
+     Bacteroidota = "#E6AB02", 
+     Pseudomonadota = "darkgreen", 
+     Halobacteriota = "#000000",
+     Acidobacteriota = "#D95F02", 
+     Bacillota_B = "#F4A582",
+     Dormibacterota = "#8C510A",
+     Cyanobacteriota = "#35978F",
+     Planctomycetota = "#B3CDE3",
+     Verrucomicrobiota= "#FBB4AE",
+     Chloroflexota = "#80B1D3",
+     Bacillota_E = "#FDBF6F",
+     Bacillota_C = "#7570B3" ,
+     Myxococcota = "#A6761D",
+     Other = "grey50" ,
+     Deinococcota = "#5ac4f6")
+```
+
+# Load Data
+
+```{r}
+host.phyla <- readRDS("../Data/metadata/virus.w.host.RDS")
+
+#Virome
+virome.metad <- read.csv("../Data/metadata/bulk_metadata.csv",row.names = 1)
+virome.abundance <- read.csv("../Data/normalized_abundance_tables/bulk_virome_normalized_table.csv", row.names = 1)
+
+#MetaT
+metat.metad <- read.csv("../Data/metadata/metat_metadata.csv", row.names = 1)
+metat.abundance <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv", row.names = 1)
+
+#Amplicon
+abundance.16s <- readRDS("../Data/amplicon/rarefied_phyloseq_object.king.RDS")
+
+```
+
+# Host Abundance dataframes
+## Virome
+
+```{r}
+virome.host <-  virome.abundance %>% 
+  rownames_to_column("virus") %>%
+  filter(virus %in% host.phyla$virus) %>%  #filter to only viruses with hosts
+  column_to_rownames(var = "virus") %>% 
+  filter(rowSums(.) != 0) %>%   # Remove rows where all values are 0
+  select(where(~ sum(.) != 0)) %>%  # Remove columns where all values are 0
+  rownames_to_column(var = "virus") %>% 
+  left_join(host.phyla, by = "virus", relationship = "many-to-many") %>% 
+  group_by(phylum) %>% 
+  summarise(across(where(is.numeric), sum, na.rm = TRUE)) %>% 
+  filter(rowSums(across(where(is.numeric))) != 0) %>% 
+  column_to_rownames("phylum") %>% 
+  relabund() %>%
+  t() %>% 
+  as.data.frame() %>% 
+  rownames_to_column("sample") %>% 
+  pivot_longer(cols = -sample,
+               names_to = "phylum",
+               values_to = "relative_abundance") %>% 
+  left_join(virome.metad, by = c("sample" = "SampleID")) %>% 
+  mutate(phylum = ifelse(is.na(phylum), "no_host", phylum),
+         pt = ifelse(Time.Point == "T-0", "T-0", Phosphorus),
+         pt = factor(pt, levels = c("T-0", "No Phosphorus", "Phosphorus"))) 
+```
+
+## Metat
+```{r}
+metat.host <-  metat.abundance %>% 
+  rownames_to_column("virus") %>%
+  filter(virus %in% host.phyla$virus) %>%  #filter to only viruses with hosts
+  column_to_rownames("virus") %>% 
+  filter(rowSums(.) != 0) %>%   # Remove rows where all values are 0
+  select(where(~ sum(.) != 0)) %>%  # Remove columns where all values are 0
+  rownames_to_column("virus") %>% 
+  left_join(host.phyla, by = "virus", relationship = "many-to-many") %>% 
+  group_by(phylum) %>% 
+  summarise(across(where(is.numeric), sum, na.rm = TRUE)) %>% 
+  filter(rowSums(across(where(is.numeric))) != 0) %>% 
+  column_to_rownames("phylum") %>% 
+  relabund() %>%
+  t() %>% 
+  as.data.frame() %>% 
+  rownames_to_column("sample") %>% 
+  pivot_longer(cols = -sample,
+               names_to = "phylum",
+               values_to = "relative_abundance") %>% 
+  left_join(metat.metad, by = c("sample" = "SampleID")) %>% 
+  mutate(phylum = ifelse(is.na(phylum), "no_host", phylum),
+         pt = ifelse(Time.Point == "T-0", "T-0", Phosphorus),
+         pt = factor(pt, levels = c("T-0", "No Phosphorus", "Phosphorus"))) 
+```
+
+## 16S
+```{r}
+#Generate relative abundance table
+abundance.16s.rel <- abundance.16s %>%
+  subset_taxa(!is.na(Phylum)) %>%                                # Drop NA Phylum
+  tax_glom(taxrank = "Phylum") %>%                               # Aggregate ASVs by Phylum
+  transform_sample_counts(function(x) x / sum(x)) %>%                # Convert to relative abundance
+  psmelt() %>%
+  mutate(Phylum = ifelse(is.na(Phylum), "Unassigned", Phylum)) %>%
+  group_by(Sample, Phylum) %>%
+  summarise(relative_abundance = sum(Abundance), .groups = "drop") %>% 
+  left_join(data.frame(sample_data(abundance.16s))) %>% 
+  mutate(source = "16S rRNA gene",
+         Sample = gsub("_16S|Dry_Soi","",Sample)) %>% 
+  rename(sample = Sample,
+         phylum = Phylum,
+         Time.Point = Timepoint,
+         pt = Phosphorus) #rename to match virome and metat dataframes
+```
+
+# Top 10 phyla
+## Virome
+```{r}
+top_10_phyla_all <- virome.host %>%  
+  filter(phylum != "no_host") %>% 
+  group_by(phylum) %>% 
+  summarise(mean_relative_abundance = mean(relative_abundance), .groups = "drop") %>% 
+  slice_max(n = 10, order_by = mean_relative_abundance) %>% 
+  mutate(phylum = str_remove(phylum, "^p__")) %>% 
+  pull(phylum)
+
+top_5_phyla_virome <- virome.host %>%  
+  filter(phylum != "no_host") %>% 
+  group_by(phylum) %>% 
+  summarise(mean_relative_abundance = mean(relative_abundance), .groups = "drop") %>% 
+  slice_max(n = 8, order_by = mean_relative_abundance) %>% 
+  mutate(phylum = str_remove(phylum, "^p__")) %>% 
+  pull(phylum)
+
+top_10_phyla_factor_all <- virome.host |> 
+  filter(phylum != "no_host") |>
+  group_by(Time.Point, pt, phylum) |>
+  summarise(mean_relative_abundance = mean(relative_abundance), .groups = "drop") |>
+  mutate(phylum = str_remove(phylum, "^p__")) |>
+  mutate(phylum = ifelse(phylum %in% top_10_phyla_all, phylum, "Other"),
+         phylum = factor(phylum, levels = c(top_10_phyla_all, "Other")))  |>
+  group_by(Time.Point, pt) |>
+  mutate(proportional_abundance = mean_relative_abundance / sum(mean_relative_abundance)) |>
+  ungroup() |>
+  group_by(phylum) |>
+  summarise(total = sum(proportional_abundance)) |>
+  arrange(desc(total)) |>
+  pull(phylum) |>
+  unique()
+```
+
+## MetaT
+```{r}
+top_10_phyla_metat <- metat.host %>%  
+  filter(phylum != "no_host") %>% 
+  group_by(phylum) %>% 
+  summarise(mean_relative_abundance = mean(relative_abundance), .groups = "drop") %>% 
+  slice_max(n = 10, order_by = mean_relative_abundance) %>% 
+  mutate(phylum = str_remove(phylum, "^p__")) %>% 
+  pull(phylum)
+
+top_10_phyla_factor_metat <- metat.host |> 
+  filter(phylum != "no_host") |>
+  group_by(Time.Point, pt, phylum) |>
+  summarise(mean_relative_abundance = mean(relative_abundance), .groups = "drop") |>
+  mutate(phylum = str_remove(phylum, "^p__")) |>
+  mutate(phylum = ifelse(phylum %in% top_10_phyla_metat, phylum, "Other"),
+         phylum = factor(phylum, levels = c(top_10_phyla_metat, "Other")))  |>
+  group_by(Time.Point, pt) |>
+  mutate(proportional_abundance = mean_relative_abundance / sum(mean_relative_abundance)) |>
+  ungroup() |>
+  group_by(phylum) |>
+  summarise(total = sum(proportional_abundance)) |>
+  arrange(desc(total)) |>
+  pull(phylum) |>
+  unique()
+```
+
+
+# Bar plots
+## Combine dataframes
+```{r}
+# Edit the data then merge into a single df
+virome.host <- virome.host %>% 
+  mutate(Time.Point = gsub("-","",Time.Point),
+         source = "Virome")
+
+metat.host <- metat.host %>% 
+  mutate(Time.Point = gsub("-","",Time.Point),
+         source = "Transcriptionally Active") 
+
+all.data <- virome.host %>%
+  bind_rows(metat.host,
+            abundance.16s.rel) 
+```
+
+## Merge top phyla
+
+```{r}
+# Merge and remove duplicates
+unique_phyla <- union(top_10_phyla_all, top_10_phyla_metat)
+unique.phyla.factor <- c(unique_phyla,"Other")
+
+all.data <-  all.data %>% arrange(source,phylum,Time.Point,pt)
+```
+
+```{r}
+# Mean and SD of each phylum
+mean.sd.taxa <- all.data %>% 
+  filter(phylum != "no_host") |>
+  mutate(phylum = str_remove(phylum, "^p__"),
+         phylum = ifelse(phylum %in% unique_phyla, phylum, "Other"),
+         phylum = factor(phylum, levels = unique.phyla.factor)
+         )  |>
+  group_by(Time.Point, pt,phylum,sample,source) |>
+  summarise(sum_abundance = sum(relative_abundance)) |>
+  group_by(phylum,source) |>
+  summarise(mean_abundance = mean(sum_abundance)*100,
+            std_dev = sd((sum_abundance))*100, .groups = "drop") 
+
+mean.sd.taxa.trt <- all.data %>% 
+  filter(phylum != "no_host") |>
+  mutate(phylum = str_remove(phylum, "^p__"),
+         phylum = ifelse(phylum %in% unique_phyla, phylum, "Other"),
+         phylum = factor(phylum, levels = unique.phyla.factor)
+         )  |>
+  group_by(Time.Point, pt,phylum,sample,source) |>
+  summarise(sum_abundance = sum(relative_abundance)) |>
+  group_by(phylum,source,pt) |>
+  summarise(mean_abundance = mean(sum_abundance)*100,
+            std_dev = sd((sum_abundance))*100, .groups = "drop") 
+```
+
+
+## Figure
+```{r}
+final.fig <- all.data %>% 
+  filter(phylum != "no_host",
+         source != "16S rRNA gene") |>
+  mutate(phylum = str_remove(phylum, "^p__"),
+         phylum = ifelse(phylum %in% unique_phyla, phylum, "Other"),
+         phylum = factor(phylum, levels = unique.phyla.factor)
+         )  |>
+  group_by(Time.Point, pt,phylum,sample,source) |>
+  summarise(sum_abundance = sum(relative_abundance)) |>
+  group_by(Time.Point, pt,phylum,source) |>
+  summarise(mean_abundance = mean(sum_abundance), .groups = "drop") %>%
+  mutate(across(source, ~factor(., levels=c("Virome","Transcriptionally Active"))),
+         pt = gsub("T-0","Dry",pt)) %>% 
+  ggplot(aes(x = Time.Point, y = mean_abundance)) +
+    geom_bar(stat = "summary", position = "stack", 
+           aes(fill = phylum), fun = "sum") +
+    scale_fill_manual(values = pal.list) +
+    theme_classic() +
+    labs(y = "Mean relative abundance \nof vOTUs with host match",
+         x = "Time point (weeks)"
+         ) +
+    facet_nested(.~source + pt,
+                 scales = "free",
+                 as.table = TRUE,
+                 space = "free",
+                 independent = "y"
+                 )+
+    scale_y_continuous(labels = scales::percent,
+                       expand = c(0,0)
+                       ) 
+
+#Edit so that dry soil is seperate then the rest
+final.fig <- final.fig+
+  facetted_pos_scales(
+    y = list(
+    pt == "No Phosphorus" ~ scale_y_continuous(
+                                               expand = c(0,0),
+                                               guide = "none"),
+    pt == "Phosphorus"  ~ scale_y_continuous(
+                                             expand = c(0,0),
+                                             guide = "none")
+    )
+  ) +
+  theme(legend.position = "bottom",                     # Place legend at the bottom
+        ) +
+  guides(fill = guide_legend(title = "Host Phyla")  # Set legend title and rows
+  )
+
+# 16S rRNA gene
+final.fig.16s <- all.data %>% 
+  filter(phylum != "no_host",
+         source == "16S rRNA gene") |>
+  mutate(phylum = str_remove(phylum, "^p__"),
+         phylum = ifelse(phylum %in% unique_phyla, phylum, "Other"),
+         phylum = factor(phylum, levels = unique.phyla.factor)
+         )  |>
+  group_by(Time.Point, pt,phylum,sample,source) |>
+  summarise(sum_abundance = sum(relative_abundance)) |>
+  group_by(Time.Point, pt,phylum,source) |>
+  summarise(mean_abundance = mean(sum_abundance), .groups = "drop") %>%
+  mutate(across(source, ~factor(., levels=c("16S rRNA gene"))),
+         pt = gsub("T-0","Dry",pt)) %>% 
+  ggplot(aes(x = Time.Point, y = mean_abundance)) +
+    geom_bar(stat = "summary", position = "stack", 
+           aes(fill = phylum), fun = "sum") +
+    scale_fill_manual(values = pal.list) +
+    theme_classic() +
+    labs(y = "Mean relative abundance \nof bacterial phyla",
+         x = "Time point (weeks)"
+         ) +
+    facet_nested(.~source + pt,
+                 scales = "free",
+                 as.table = TRUE,
+                 space = "free",
+                 independent = "y"
+                 )+
+    scale_y_continuous(labels = scales::percent,
+                       expand = c(0,0)
+                       ) 
+
+#Edit so that dry soil is seperate then the rest
+final.fig.16s <- final.fig.16s+
+  facetted_pos_scales(
+    y = list(
+    pt == "No Phosphorus" ~ scale_y_continuous(
+                                               expand = c(0,0),
+                                               guide = "none"),
+    pt == "Phosphorus"  ~ scale_y_continuous(
+                                             expand = c(0,0),
+                                             guide = "none")
+    )
+  ) +
+  theme(legend.position = "none",                     # Place legend at the bottom
+        ) +
+  guides(fill = guide_legend(title = "Host Phyla")  # Set legend title and rows
+  )
+
+final.bar <- ggarrange(final.fig.16s,final.fig,
+          ncol = 2,widths = c(0.35,0.65),
+          common.legend = TRUE,
+          legend = "bottom")
+
+```
+
+
+## Stats
+### Virome
+```{r}
+virome.data <- all.data %>% 
+  filter(source == "Virome")
+
+filtered_data_virome <- virome.data %>%
+  filter(!is.na(phylum) & !is.na(pt), relative_abundance > 0) %>%
+  group_by(phylum, pt) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(phylum) %>%
+  filter(sum(count > 1) >= 2) %>% # Keep phylum if there are more than 1 observation in at least 2 of the 3 pt groups
+  ungroup()
+
+View(virome.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+          pt != "T-0",
+         relative_abundance > 0) %>% 
+  filter(phylum %in% filtered_data_virome$phylum) %>%
+  group_by(phylum) %>% 
+  kruskal_test(relative_abundance ~ pt))
+
+virome.stats.pt <- virome.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+          pt != "T-0",
+         relative_abundance > 0) %>% 
+  filter(phylum %in% filtered_data_virome$phylum) %>%
+  group_by(phylum) %>% 
+  dunn_test(relative_abundance~pt) %>% 
+  mutate(pt = NA)
+
+filtered_data_virome <- virome.data %>%
+  filter(!is.na(phylum) & !is.na(pt), relative_abundance > 0) %>%
+  group_by(phylum, Time.Point) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(phylum) %>%
+  filter(sum(count > 1) >= 2) %>% # Keep phylum if there are more than 1 observation in at least 2 of the 3 pt groups
+  ungroup()
+
+virome.stats.time <-virome.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         relative_abundance > 0,
+         ) %>% 
+  filter(phylum %in% filtered_data_virome$phylum) %>% 
+  group_by(phylum) %>% 
+  # filter(n_distinct(Time.Point) > 1) %>% 
+  dunn_test(relative_abundance~Time.Point)
+
+# Comvine all test and adjust p value
+all.virome.stats <- bind_rows(virome.stats.pt,virome.stats.time) %>% 
+  mutate(p.adj = p.adjust(p, method = "fdr")) %>% 
+  add_significance()
+```
+
+### metat
+```{r}
+metat.data <- all.data %>% 
+  filter(source == "Transcriptionally Active")
+
+filtered_data_metat <- metat.data %>%
+  filter(!is.na(phylum) & !is.na(pt), relative_abundance > 0) %>%
+  group_by(phylum, pt) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(phylum) %>%
+  filter(sum(count > 1) >= 2) %>% # Keep phylum if there are more than 1 observation in at least 2 of the 3 pt groups
+  ungroup()
+
+lm.mod <- lm(sqrt(relative_abundance) ~ pt,data = metat.data)
+
+View(
+  kruskal_test(relative_abundance ~ pt,data = metat.data))
+
+metat.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         pt != "T-0",
+         relative_abundance > 0) %>% 
+  filter(phylum %in% filtered_data_metat$phylum) %>%
+  group_by(phylum,pt) %>% 
+  summarize(mean(relative_abundance))
+
+metat.stats.pt <- metat.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         pt != "T-0",
+         relative_abundance > 0) %>% 
+  filter(phylum %in% filtered_data_metat$phylum) %>%
+  group_by(phylum) %>% 
+  dunn_test(relative_abundance~pt) %>% 
+  mutate(pt = NA)
+
+metat.stats.time <-metat.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         relative_abundance > 0,
+         ) %>% 
+  filter(phylum %in% filtered_data_metat$phylum) %>% 
+  # group_by(phylum,pt) %>% 
+  group_by(phylum) %>% 
+  # filter(n_distinct(Time.Point) > 1) %>% 
+  dunn_test(relative_abundance~Time.Point)
+
+# Combine all test and adjust p value
+all.metat.stats <- bind_rows(metat.stats.pt,metat.stats.time) %>% 
+  mutate(p.adj = p.adjust(p, method = "fdr")) %>% 
+  add_significance()
+```
+
+# RDAs
+
+## Create relative abundance dataframes
+### Virome
+```{r}
+# Relative abundance of vOTUs that have a preducted host
+virome.com.data <- virome.abundance %>% 
+  rownames_to_column("vOTUs") %>% 
+  right_join(host.phyla,by=join_by("vOTUs" == "virus")) %>% 
+  mutate(phylum = ifelse(is.na(phylum),"Unclassified",phylum),
+         phylum = gsub("p__","",phylum)) %>% 
+  drop_na() %>% 
+  group_by(phylum) %>% 
+  summarise(across(where(is.numeric), sum),.groups = "drop") %>% 
+  filter(phylum != "Unclassified") %>% 
+  column_to_rownames("phylum") %>% 
+  rel_abundance(.,38) %>% 
+  t() %>% 
+  as.data.frame()
+
+#Virome Distance table
+virome.dist <- dist.table(virome.abundance,"Y","bray")
+
+# Get the order of rows in the distance matrix
+virome_order_of_samples <- rownames(virome.dist)
+
+# Check if the rownames of the reordered data frame match the order of the distance matrix
+identical(virome_order_of_samples, rownames(virome.com.data))
+```
+
+### Metat
+```{r}
+# Relative abundance of vOTUs that have a preducted host
+metat.com.data <- metat.abundance %>% 
+  rownames_to_column("vOTUs") %>% 
+  right_join(host.phyla,by=join_by("vOTUs" == "virus")) %>% 
+  mutate(phylum = ifelse(is.na(phylum),"Unclassified",phylum),
+         phylum = gsub("p__","",phylum)) %>% 
+  drop_na() %>% 
+  group_by(phylum) %>% 
+  summarise(across(where(is.numeric), sum),.groups = "drop") %>% 
+  filter(phylum != "Unclassified") %>% 
+  column_to_rownames("phylum") %>% 
+  rel_abundance(.,39) %>% 
+  t() %>% 
+  as.data.frame()
+
+#metat Distance table
+metat.dist <- dist.table(metat.abundance,"Y","bray")
+
+# Get the order of rows in the distance matrix
+metat_order_of_samples <- rownames(metat.dist)
+
+# Check if the rownames of the reordered data frame match the order of the distance matrix
+identical(metat_order_of_samples, rownames(metat.com.data))
+```
+
+## dbRDA
+### Virome
+```{r}
+virome.dbrda.result <- dbrda(as.dist(virome.dist) ~ .,data = virome.com.data %>%
+                      select(-Verrucomicrobiota) # Was removed becuse it was collinear
+                      )
+
+
+virome.anova_results <- anova.cca(virome.dbrda.result, by = "term", permutations = 999)
+
+cap.plot.df <- as.data.frame(scores(virome.dbrda.result)$sites)
+
+#virus host abundance
+virome.cap.plot.df <- merge(cap.plot.df,virome.metad,by.x = "row.names",by.y = "SampleID")
+
+virome.vscores <- virome.dbrda.result.setp$CCA$biplot
+
+#only select for significant vscores
+virome.sig.cap <- virome.anova_results %>% 
+  filter(`Pr(>F)` < 0.05) %>% 
+  data.frame()
+
+virome.cap.plot.df$Time.Point <- gsub("-","",virome.cap.plot.df$Time.Point)
+
+virome.vscores <- virome.vscores[rownames(virome.vscores) %in% rownames(virome.sig.cap),]
+
+virome.vscores.top5 <- virome.vscores[row.names(virome.vscores) %in% top_5_phyla_virome,]
+```
+
+### Metat
+```{r}
+metat.dbrda.result <- dbrda(as.dist(metat.dist) ~ .,data = metat.com.data%>%
+                      select(-Verrucomicrobiota) # Was removed becuse it was collinear
+                      )
+
+metat.anova_results <- anova.cca(metat.dbrda.result, by = "term", permutations = 999,)
+
+cap.plot.df <- as.data.frame(scores(metat.dbrda.result)$sites)
+
+#virus host abundance
+metat.cap.plot.df <- merge(cap.plot.df,metat.metad,by.x = "row.names",by.y = "SampleID")
+
+metat.vscores <- metat.dbrda.result$CCA$biplot
+
+#only select for significant vscores
+metat.sig.cap <- metat.anova_results %>% 
+  filter(`Pr(>F)` < 0.05) %>% 
+  data.frame()
+
+metat.cap.plot.df$Time.Point <- gsub("-","",metat.cap.plot.df$Time.Point)
+
+metat.vscores <- metat.vscores[rownames(metat.vscores) %in% rownames(metat.sig.cap),]
+```
+
+## dbRDA Figures
+### Virome
+```{r}
+# Variables for the figure
+alpha=0.7
+point.size=3.5
+text.size=18
+theme.opt=theme_bw()
+color.palette=col.lnll
+shape.shapes=c(16,17,15,18)
+label=NULL
+vscores = virome.vscores
+
+virome.rda.plot.top5 <- ggscatter(virome.cap.plot.df, x="dbRDA1", y="dbRDA2",color = "Time.Point",
+          shape="Phosphorus",
+          ggtheme = theme.opt,
+          size=point.size,
+          alpha=alpha,
+          palette=color.palette,
+          label = label,
+          repel = TRUE,
+          font.label = c("black")
+          )+
+    scale_shape_manual(values = shape.shapes) +
+  # set text size for whole graph. set the background color (white with no lines)
+  theme(text = element_text(size = text.size), panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+        legend.position = "right")+
+  scale_color_manual(values = col.lnll)+   
+  # set text size for whole graph. set the background color (white with no lines)
+  theme(text = element_text(size = 18), panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+        legend.position = "right")+ 
+  guides(color=guide_legend(title="Time Point"),
+         shape=guide_legend(title="Soil Treatment"))+
+  geom_segment(data = virome.vscores.top5, aes(x = 0, y = 0, xend = dbRDA1, yend = dbRDA2),
+               arrow=arrow(length=unit(0.2,"cm")),
+                   alpha = 0.6, color = 'grey10')+
+  ggrepel::geom_label_repel(data = virome.vscores.top5, 
+                          aes(x = dbRDA1, y = dbRDA2, label = rownames(virome.vscores.top5),
+                              ), 
+                           col = c("black"), 
+                           hjust = 1, 
+                          alpha = 0.8,
+                           nudge_x = 0.02 * sign(virome.vscores[, "dbRDA1"]), 
+                           nudge_y = 0.02 * sign(virome.vscores[, "dbRDA2"]),
+                           segment.size = 0.2,
+                          max.overlaps = Inf,
+                          max.time = 0.8)+
+  xlab("dbRDA1") + 
+  ylab("dbRDA2")+
+  ggtitle("Virome")
+
+```
+
+
+### metat
+```{r}
+# Variables for the figure
+alpha=0.7
+# point.size=8
+text.size=18
+theme.opt=theme_bw()
+color.palette=col.lnll
+shape.shapes=c(16,17,15,18)
+label=NULL
+
+metat.rda.plot <- ggscatter(metat.cap.plot.df, x="dbRDA1", y="dbRDA2",color = "Phosphorus",
+          shape="Time.Point",
+          ggtheme = theme.opt,
+          size=point.size,
+          alpha=alpha,
+          palette=color.palette,
+          label = label,
+          repel = TRUE,
+          font.label = c("black")
+          )+
+    scale_shape_manual(values = shape.shapes) +
+  # set text size for whole graph. set the background color (white with no lines)
+  theme(text = element_text(size = text.size), panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+        legend.position = "right")+
+  scale_color_manual(values = col.lnll)+   
+  # set text size for whole graph. set the background color (white with no lines)
+  theme(text = element_text(size = 18), panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+        legend.position = "right")+ 
+  guides(color=guide_legend(title="Soil Treatment"),
+         shape=guide_legend(title="Time Point"))+
+  geom_segment(data = metat.vscores, aes(x = 0, y = 0, xend = dbRDA1, yend = dbRDA2),
+               arrow=arrow(length=unit(0.2,"cm")),
+                   alpha = 0.6, color = 'grey10')+
+  ggrepel::geom_label_repel(data = metat.vscores, 
+                          aes(x = dbRDA1, y = dbRDA2, label = rownames(metat.vscores),
+                              ), 
+                           col = c("black"), 
+                           hjust = 1, 
+                          alpha = 0.8,
+                           nudge_x = 0.02 * sign(metat.vscores[, "dbRDA1"]), 
+                           nudge_y = 0.02 * sign(metat.vscores[, "dbRDA2"]),
+                           segment.size = 0.2,
+                          max.overlaps = Inf,
+                          max.time = 0.8)+
+  xlab("dbRDA1") + 
+  ylab("dbRDA2")+
+  ggtitle("Trascriptionally Active Viruses")
+
+
+```
+
+
+
+# Combine dbRDA plots
+```{r}
+label.size <-22
+# All rda plots
+
+#Only virome and metat rda plots
+combined.rda.plot.top <- ggarrange(virome.rda.plot.top5, metat.rda.plot,
+                                ncol = 2, nrow = 1,
+                                common.legend = FALSE, legend = "right",
+                                labels = c("D", "E"),
+                                font.label = list(size = label.size)
+                                ) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+p1 <- ggplotGrob(final.bar)
+p2 <- ggplotGrob(combined.rda.plot.top)
+
+
+fig6 <- ggarrange(p1,p2,
+                  ncol = 1,
+                  common.legend = FALSE,
+                  labels = c("A", ""),
+                  font.label = list(size = label.size),
+                  heights = c(0.4,0.6)
+                  ) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggsave(fig6, filename = "../figures/figure6.png", width = 14, height = 11, dpi = 300)
+ggsave(fig6, filename = "../figures/figure6.svg", width = 14, height = 11, dpi = 300)
+```
+
+# Supp Figure
+```{r}
+metat.actins <- metat.abundance %>%
+rownames_to_column("virus") %>%
+filter(virus %in% host.phyla$virus) %>%  #filter to only viruses with hosts
+column_to_rownames(var = "virus") %>%
+filter(rowSums(.) != 0) %>%   # Remove rows where all values are 0
+select(where(~ sum(.) != 0)) %>%  # Remove columns where all values are 0
+rownames_to_column(var = "virus") %>%
+left_join(host.phyla, by = "virus", relationship = "many-to-many")%>%
+filter(phylum == "p__Actinomycetota") %>%
+select(-phylum) %>%
+column_to_rownames("virus") %>%
+relabund() %>%
+t() %>%
+as.data.frame() %>%
+rownames_to_column("sample") %>%
+pivot_longer(cols = -sample,
+names_to = "vOTU",
+values_to = "relative_abundance") %>%
+mutate(timepoint = case_when(
+grepl("T0",sample) ~ "T0",
+grepl("T1",sample) ~ "T1",
+grepl("T2",sample) ~ "T2",
+grepl("T3",sample) ~ "T3"
+),
+dry_wet = ifelse(
+grepl("T0",sample),"Dry","Wet"
+)) %>%
+filter(relative_abundance > 0)
+
+
+#Number of unique votus in dry samples
+metat.actins %>% filter(timepoint == "T0") %>% pull(vOTU) %>% unique() %>% length()
+## Number of unique votus in wet samples
+metat.actins %>% filter(dry_wet == "Wet") %>% pull(vOTU) %>% unique() %>% length()
+## Number of T0 votus found in all other time points
+t0.votus <- metat.actins %>%
+filter(timepoint == "T0") %>%
+pull(vOTU) %>%
+unique()
+
+metat.actins %>%
+filter(vOTU %in% t0.votus,
+timepoint != "T0") %>%
+pull(vOTU) %>%
+unique() %>%
+length()
+
+# Number of votus found in all time points
+votus_all_timepoints <- metat.actins %>%
+group_by(vOTU) %>%
+summarise(
+n_timepoints = n_distinct(timepoint),
+.groups = "drop"
+) %>%
+filter(n_timepoints == n_distinct(metat.actins$timepoint))
+
+votus_all_timepoints %>% pull(vOTU) %>% unique() %>% length()
+
+## 1) Venn by timepoint
+sets_timepoint <- metat.actins %>%
+distinct(timepoint, vOTU) %>%                 # presence/absence only
+group_by(timepoint) %>%
+summarise(vOTUs = list(unique(vOTU)), .groups = "drop") %>%
+{ setNames(.$vOTUs, .$timepoint) }            # named list for Venn
+
+mp_timepoint <- ggVennDiagram::ggVennDiagram(sets_timepoint, label_alpha = 0.3) +
+labs(subtitle = "Shared vOTUs predicted to infect\nActinomycetota by time point")+
+scale_fill_distiller(palette = "Set3",
+                     direction =1)+
+theme(legend.position = "none")
+
+## 2) Venn by dry_wet
+sets_drywet <- metat.actins %>%
+distinct(dry_wet, vOTU) %>%
+group_by(dry_wet) %>%
+summarise(vOTUs = list(unique(vOTU)), .groups = "drop") %>%
+{ setNames(.$vOTUs, .$dry_wet) }
+
+mp_drywet <- ggVennDiagram::ggVennDiagram(sets_drywet, label_alpha = 0.2) +
+labs(
+subtitle = "Shared vOTUs predicted to infect\nActinomycetota in dry and post–wet-up soils"
+)+
+scale_fill_distiller(palette = "Spectral")+
+theme(legend.position = "none")
+
+m_shared.actin.votus <- ggpubr::ggarrange(mp_drywet+mp_timepoint
+                                          # labels = "Transcriptionally Active",
+                                          # hjust = -0.35
+                                          )
+
+ggsave(plot = m_shared.actin.votus,"./actinomycetota.shared.votus.metat.png",width =12)
+ggsave(plot = m_shared.actin.votus,"./actinomycetota.shared.votus.metat.svg",width =12)
+
+all.actins.fig <- ggarrange(shared.actin.votus,m_shared.actin.votus,
+# common.legend = TRUE,
+nrow = 2,
+labels = c("A","B"),
+font.label = list(size = 22))
+
+virome.actins <- virome.abundance %>%
+rownames_to_column("virus") %>%
+filter(virus %in% host.phyla$virus) %>%  #filter to only viruses with hosts
+column_to_rownames(var = "virus") %>%
+filter(rowSums(.) != 0) %>%   # Remove rows where all values are 0
+select(where(~ sum(.) != 0)) %>%  # Remove columns where all values are 0
+rownames_to_column(var = "virus") %>%
+left_join(host.phyla, by = "virus", relationship = "many-to-many")%>%
+filter(phylum == "p__Actinomycetota") %>%
+select(-phylum) %>%
+column_to_rownames("virus") %>%
+relabund() %>%
+t() %>%
+as.data.frame() %>%
+rownames_to_column("sample") %>%
+pivot_longer(cols = -sample,
+names_to = "vOTU",
+values_to = "relative_abundance") %>%
+mutate(timepoint = case_when(
+grepl("T0",sample) ~ "T0",
+grepl("T1",sample) ~ "T1",
+grepl("T2",sample) ~ "T2",
+grepl("T3",sample) ~ "T3"
+),
+dry_wet = ifelse(
+grepl("T0",sample),"Dry","Wet"
+)) %>%
+filter(relative_abundance > 0)
+
+#Number of unique votus in dry samples
+virome.actins %>% filter(timepoint == "T0") %>% pull(vOTU) %>% unique() %>% length()
+## Number of unique votus in wet samples
+virome.actins %>% filter(dry_wet == "Wet") %>% pull(vOTU) %>% unique() %>% length()
+## Number of T0 votus found in all other time points
+t0.votus <- virome.actins %>%
+filter(timepoint == "T0") %>%
+pull(vOTU) %>%
+unique()
+
+virome.actins %>%
+filter(vOTU %in% t0.votus,
+timepoint != "T0") %>%
+pull(vOTU) %>%
+unique() %>%
+length()
+
+# Number of votus found in all time points
+votus_all_timepoints <- virome.actins %>%
+group_by(vOTU) %>%
+summarise(
+n_timepoints = n_distinct(timepoint),
+.groups = "drop"
+) %>%
+filter(n_timepoints == n_distinct(metat.actins$timepoint))
+
+votus_all_timepoints %>% pull(vOTU) %>% unique() %>% length()
+
+## 1) Venn by timepoint
+sets_timepoint <- virome.actins %>%
+distinct(timepoint, vOTU) %>%                 # presence/absence only
+group_by(timepoint) %>%
+summarise(vOTUs = list(unique(vOTU)), .groups = "drop") %>%
+{ setNames(.$vOTUs, .$timepoint) }            # named list for Venn
+
+p_timepoint <- ggVennDiagram::ggVennDiagram(sets_timepoint, label_alpha = 0.3) +
+labs(subtitle ="Shared vOTUs predicted to infect\nActinomycetota by time point")+
+scale_fill_distiller(palette = "Set3",
+                     direction =1)+
+theme(legend.position = "none")
+
+## 2) Venn by dry_wet
+sets_drywet <- virome.actins %>%
+distinct(dry_wet, vOTU) %>%
+group_by(dry_wet) %>%
+summarise(vOTUs = list(unique(vOTU)), .groups = "drop") %>%
+{ setNames(.$vOTUs, .$dry_wet) }
+
+p_drywet <- ggVennDiagram::ggVennDiagram(sets_drywet, label_alpha = 0.2) +
+labs(subtitle = "Shared vOTUs predicted to infect\nActinomycetota in dry and post wet-up soils")+
+scale_fill_distiller(palette = "Spectral")+
+theme(legend.position = "none")
+
+shared.actin.votus <- ggpubr::ggarrange(p_drywet+p_timepoint
+                                        # labels = "Virome",
+                                        # hjust = -0.35
+                                        )
+
+ggsave(plot = shared.actin.votus,"./actinomycetota.shared.votus.png",width =12)
+ggsave(plot = shared.actin.votus,"./actinomycetota.shared.votus.svg",width =12)
+
+all.actins.fig <- ggarrange(shared.actin.votus,m_shared.actin.votus,
+# common.legend = TRUE,
+nrow = 2,
+labels = c("A","B"),
+font.label = list(size = 22))
+```
+
