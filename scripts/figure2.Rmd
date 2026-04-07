@@ -458,7 +458,7 @@ set.seed(1990)
 adonis2(as.dist(virome.dist)~Timepoint,data=virome.axes, by = "terms")
 adonis2(as.dist(virome.dist)~Phosphorus,data=virome.axes, by = "terms")
 adonis2(as.dist(virome.dist)~wetup,data=virome.axes, by = "terms")
-adonis2(as.dist(virome.dist)~Timepoint*,data=virome.axes, by = "terms")
+adonis2(as.dist(virome.dist)~Timepoint*Phosphorus,data=virome.axes, by = "terms")
 
 
 pairwise.adonis(as.dist(virome.dist),virome.axes$Timepoint)
@@ -472,12 +472,6 @@ lapply(c("T1", "T2", "T3"),function(x){
   meta.data_ <- virome.axes %>% filter(Timepoint == x)
   print(pairwise.adonis(as.dist(dist_),meta.data_$Phosphorus))
 })
-
-
-
-hull <- virome.axes %>% 
-  group_by(Timepoint) %>% 
-  slice(chull(Axis.1, Axis.2))
 
 print(virome.pcoa)
 
