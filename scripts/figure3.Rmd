@@ -58,47 +58,6 @@ alpha.div.plot <- function(df,stats.df,x,y,fill,color,xlab,ylab,legend.title,
   
 }
 
-# alpha.div.plot.source <- function(df,stats.df,x,y,fill,color,xlab,ylab,legend.title,
-#                             box.alpha = 0,
-#                             box.line.size = 0.6,
-#                             box.outliers = FALSE, 
-#                             jitter.width = 0.15,
-#                             dodge.width = 0.9,
-#                             jitter.height = 0,
-#                             jitter.alpha = 0.7,
-#                             jitter.size = 2,
-#                             rotate = 0,
-#                             hide.ns = TRUE,
-#                             stat.size = 6,
-#                             stat.step = 0.1,
-#                             stat.tip = 0,
-#                             stat.backet.nudge = 0,
-#                             legend = "none"
-#                             ){
-#   ggboxplot(df,x=x,y=y,fill=fill,color=fill,
-#             outliers = box.outliers,alpha = box.alpha,
-#             size = box.line.size,shape = shape)+
-#   geom_jitter(position = position_jitterdodge(jitter.width = jitter.width, dodge.width = dodge.width ,jitter.height = jitter.height),
-#               alpha = jitter.alpha,
-#               size = jitter.size,
-#               aes(color = !!sym(fill)))+
-#   #theme_bw()+
-#   xlab(xlab)+
-#   ylab(ylab)+
-#   guides(x =  guide_axis(angle = rotate)) +
-#   stat_pvalue_manual(stats.df, label = "p.adj.signif",
-#                       hide.ns = hide.ns,size= stat.size,
-#                      step.increase = stat.step,tip.length = stat.tip,
-#                      bracket.nudge.y = stat.backet.nudge)+
-#   theme(legend.position = legend)+
-#   font("axis.text")+
-#   font("xylab")+
-#   scale_color_manual(values = col.lnll)+ 
-#   guides(color = guide_legend(title = legend.title),
-#          fill = guide_legend(title = legend.title))
-#   
-# }
-
 pcoa.plots <- function(metadata.frame,eigenvalues.df,color,shape,axis_prefix="Axis.",
                        x.axis=1 ,y.axis=2,alpha=0.7,point.size=10,text.size=18, theme.opt=theme_bw(),
                        color.palette=NULL,shape.shapes=c(16,17,15,18),label=NULL){
@@ -152,7 +111,6 @@ make_ellipse <- function(df, x_col, y_col, level = 0.95, npoints = 200) {
 # Data
 ```{r}
 #load data
-
 virome.votu.table <- read.csv("../Data/normalized_abundance_tables/bulk_virome_normalized_table.csv",row.names = 1)
 
 virome.metadata <- read.csv("../Data/metadata/bulk_metadata.csv",row.names = "SampleID") %>% 
