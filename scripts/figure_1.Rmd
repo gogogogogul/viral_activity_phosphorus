@@ -308,7 +308,6 @@ virome.votu.table.sum <- virome.votu.table %>%
   rownames_to_column("Samples") %>%
   mutate(Treatment = case_when(
     grepl("T0",Samples) ~ "Virome - Dry",
-    # grepl("P",Samples) ~ "Virome + P",
     TRUE ~ "Virome - Post-Wet Up"
   )) %>%
   group_by(Treatment) %>%
@@ -327,7 +326,6 @@ metat.votu.table.sum <- metat.votu.table %>%
   rownames_to_column("Samples") %>%
   mutate(Treatment = case_when(
     grepl("T0",Samples) ~ "Metatranscriptome - Dry",
-    # grepl("P",Samples) ~ "Metatranscriptome + P",
     TRUE ~ "Metatranscriptome - Post-Wet Up"
   )) %>%
   group_by(Treatment) %>%
