@@ -3,7 +3,7 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 library(ggplot2)
 library(tidyverse)
 library(llnl)
@@ -12,6 +12,7 @@ library(rstatix)
 library(ggpubr)
 library(vegan)
 library(phyloseq)
+library(patchwork)
 ```
 # Functions
 ```{r}
@@ -401,15 +402,45 @@ filtered_data_virome <- virome.data %>%
 View(virome.data %>%
   filter(!is.na(phylum) & !is.na(pt),
           pt != "T-0",
-         relative_abundance > 0) %>% 
+         # relative_abundance > 0,
+         ) %>% 
   filter(phylum %in% filtered_data_virome$phylum) %>%
   group_by(phylum) %>% 
   kruskal_test(relative_abundance ~ pt))
 
+virome.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         # pt != "T-0",
+         # relative_abundance > 0
+         ) %>% 
+  filter(phylum %in% filtered_data_virome$phylum) %>%
+  group_by(phylum,pt) %>% 
+  summarize(mean(relative_abundance))
+
+virome.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         # pt != "T-0",
+         # relative_abundance > 0
+         ) %>% 
+  filter(phylum %in% filtered_data_virome$phylum) %>%
+  group_by(phylum,Timepoint) %>% 
+  summarize(mean(relative_abundance))
+
+virome.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         # pt != "T-0",
+         # relative_abundance > 0
+         ) %>% 
+  filter(phylum %in% filtered_data_virome$phylum) %>%
+  group_by(phylum) %>% 
+  summarize(mean.ab = mean(relative_abundance),
+            mean.sd = sd(relative_abundance))
+
 virome.stats.pt <- virome.data %>%
   filter(!is.na(phylum) & !is.na(pt),
           pt != "T-0",
-         relative_abundance > 0) %>% 
+         # relative_abundance > 0,
+         ) %>% 
   filter(phylum %in% filtered_data_virome$phylum) %>%
   group_by(phylum) %>% 
   dunn_test(relative_abundance~pt) %>% 
@@ -425,7 +456,7 @@ filtered_data_virome <- virome.data %>%
 
 virome.stats.time <-virome.data %>%
   filter(!is.na(phylum) & !is.na(pt),
-         relative_abundance > 0,
+         # relative_abundance > 0,
          ) %>% 
   filter(phylum %in% filtered_data_virome$phylum) %>% 
   group_by(phylum) %>% 
@@ -453,21 +484,39 @@ filtered_data_metat <- metat.data %>%
 
 lm.mod <- lm(sqrt(relative_abundance) ~ pt,data = metat.data)
 
-View(
-  kruskal_test(relative_abundance ~ pt,data = metat.data))
 
 metat.data %>%
   filter(!is.na(phylum) & !is.na(pt),
-         pt != "T-0",
-         relative_abundance > 0) %>% 
+         # pt != "T-0",
+         # relative_abundance > 0
+         ) %>% 
   filter(phylum %in% filtered_data_metat$phylum) %>%
   group_by(phylum,pt) %>% 
+  summarize(mean(relative_abundance))
+
+metat.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         # pt != "T-0",
+         # relative_abundance > 0
+         ) %>% 
+  filter(phylum %in% filtered_data_metat$phylum) %>%
+  group_by(phylum,Timepoint) %>% 
+  summarize(mean(relative_abundance))
+
+metat.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         # pt != "T-0",
+         # relative_abundance > 0
+         ) %>% 
+  filter(phylum %in% filtered_data_metat$phylum) %>%
+  group_by(phylum) %>% 
   summarize(mean(relative_abundance))
 
 metat.stats.pt <- metat.data %>%
   filter(!is.na(phylum) & !is.na(pt),
          pt != "T-0",
-         relative_abundance > 0) %>% 
+         # relative_abundance > 0
+         ) %>% 
   filter(phylum %in% filtered_data_metat$phylum) %>%
   group_by(phylum) %>% 
   dunn_test(relative_abundance~pt) %>% 
@@ -475,7 +524,7 @@ metat.stats.pt <- metat.data %>%
 
 metat.stats.time <-metat.data %>%
   filter(!is.na(phylum) & !is.na(pt),
-         relative_abundance > 0,
+         # relative_abundance > 0,
          ) %>% 
   filter(phylum %in% filtered_data_metat$phylum) %>% 
   # group_by(phylum,pt) %>% 
@@ -485,6 +534,68 @@ metat.stats.time <-metat.data %>%
 
 # Combine all test and adjust p value
 all.metat.stats <- bind_rows(metat.stats.pt,metat.stats.time) %>% 
+  mutate(p.adj = p.adjust(p, method = "fdr")) %>% 
+  add_significance()
+
+metat.sig.fig <- all.metat.stats %>% 
+  filter(p.adj < 0.05)
+```
+
+### Amplicon
+```{r}
+amplicon.data <- all.data %>% 
+  filter(source == "16S rRNA gene")
+
+filtered_data_amplicon <- amplicon.data %>%
+  filter(!is.na(phylum) & !is.na(pt), relative_abundance > 0) %>%
+  group_by(phylum, pt) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(phylum) %>%
+  filter(sum(count > 1) >= 2) %>% # Keep phylum if there are more than 1 observation in at least 2 of the 3 pt groups
+  ungroup()
+
+lm.mod <- lm(sqrt(relative_abundance) ~ pt,data = amplicon.data)
+
+amplicon.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         pt != "T-0",
+         # relative_abundance > 0
+         ) %>% 
+  filter(phylum %in% filtered_data_amplicon$phylum) %>%
+  group_by(phylum,pt) %>% 
+  summarize(mean(relative_abundance))
+
+amplicon.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         pt != "T-0",
+         # relative_abundance > 0
+         ) %>% 
+  filter(phylum %in% filtered_data_amplicon$phylum) %>%
+  group_by(phylum) %>% 
+  kruskal_test(relative_abundance ~ pt)
+
+amplicon.stats.pt <- amplicon.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         pt != "T-0",
+         # relative_abundance > 0
+         ) %>% 
+  filter(phylum %in% filtered_data_amplicon$phylum) %>%
+  group_by(phylum) %>% 
+  dunn_test(relative_abundance~pt) %>% 
+  mutate(pt = NA)
+
+amplicon.stats.time <-amplicon.data %>%
+  filter(!is.na(phylum) & !is.na(pt),
+         # relative_abundance > 0,
+         ) %>% 
+  filter(phylum %in% filtered_data_amplicon$phylum) %>% 
+  # group_by(phylum,pt) %>% 
+  group_by(phylum) %>% 
+  # filter(n_distinct(Time.Point) > 1) %>% 
+  dunn_test(relative_abundance~Time.Point)
+
+# Combine all test and adjust p value
+all.amplicon.stats <- bind_rows(amplicon.stats.pt,amplicon.stats.time) %>% 
   mutate(p.adj = p.adjust(p, method = "fdr")) %>% 
   add_significance()
 ```
@@ -561,7 +672,7 @@ cap.plot.df <- as.data.frame(scores(virome.dbrda.result)$sites)
 #virus host abundance
 virome.cap.plot.df <- merge(cap.plot.df,virome.metad,by.x = "row.names",by.y = "SampleID")
 
-virome.vscores <- virome.dbrda.result.setp$CCA$biplot
+virome.vscores <- virome.dbrda.result$CCA$biplot
 
 #only select for significant vscores
 virome.sig.cap <- virome.anova_results %>% 
@@ -581,7 +692,7 @@ metat.dbrda.result <- dbrda(as.dist(metat.dist) ~ .,data = metat.com.data%>%
                       select(-Verrucomicrobiota) # Was removed becuse it was collinear
                       )
 
-metat.anova_results <- anova.cca(metat.dbrda.result, by = "term", permutations = 999,)
+metat.anova_results <- anova.cca(metat.dbrda.result, by = "term", permutations = 999)
 
 cap.plot.df <- as.data.frame(scores(metat.dbrda.result)$sites)
 
@@ -743,7 +854,7 @@ ggsave(fig6, filename = "../figures/figure6.png", width = 14, height = 11, dpi =
 ggsave(fig6, filename = "../figures/figure6.svg", width = 14, height = 11, dpi = 300)
 ```
 
-# Supp Figure
+# Supp Figure 5
 ```{r}
 metat.actins <- metat.abundance %>%
   rownames_to_column("virus") %>%
@@ -841,19 +952,11 @@ mp_drywet <- ggVennDiagram::ggVennDiagram(sets_drywet, label_alpha = 0.2) +
   scale_fill_distiller(palette = "Spectral")+
   theme(legend.position = "none")
 
-m_shared.actin.votus <- ggpubr::ggarrange(mp_drywet+mp_timepoint
-                                          # labels = "Transcriptionally Active",
-                                          # hjust = -0.35
-                                          )
+m_shared.actin.votus <- (mp_drywet + mp_timepoint) +
+  plot_annotation(title = "Transcriptionally Active")
 
 # ggsave(plot = m_shared.actin.votus,"../figures/supplementary_fig5.png",width =12)
 # ggsave(plot = m_shared.actin.votus,"./figures/supplementary_fig5.svg",width =12)
-
-all.actins.fig <- ggarrange(shared.actin.votus,m_shared.actin.votus,
-# common.legend = TRUE,
-nrow = 2,
-labels = c("A","B"),
-font.label = list(size = 22))
 
 virome.actins <- virome.abundance %>%
 rownames_to_column("virus") %>%
@@ -937,18 +1040,18 @@ labs(subtitle = "Shared vOTUs predicted to infect\nActinomycetota in dry and pos
 scale_fill_distiller(palette = "Spectral")+
 theme(legend.position = "none")
 
-shared.actin.votus <- ggpubr::ggarrange(p_drywet+p_timepoint
-                                        # labels = "Virome",
-                                        # hjust = -0.35
-                                        )
+shared.actin.votus <- (p_drywet+p_timepoint) +
+  plot_annotation(title = "Virome")
 
-ggsave(plot = shared.actin.votus,"./actinomycetota.shared.votus.png",width =12)
-ggsave(plot = shared.actin.votus,"./actinomycetota.shared.votus.svg",width =12)
 
-all.actins.fig <- ggarrange(shared.actin.votus,m_shared.actin.votus,
+all.actins.fig <- ggarrange(m_shared.actin.votus,shared.actin.votus,
 # common.legend = TRUE,
 nrow = 2,
 labels = c("A","B"),
 font.label = list(size = 22))
+
+ggsave(plot = all.actins.fig,"../figures/supplementary_fig5.png",width =12,height=10)
+ggsave(plot = all.actins.fig,"../figures/supplementary_fig5.svg",width =12,height=10)
+
 ```
 
