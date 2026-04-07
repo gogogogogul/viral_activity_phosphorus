@@ -4,7 +4,7 @@ output: html_notebook
 ---
 
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 library(ggpubr)
 library(tidyverse)
 library(llnl)
@@ -34,7 +34,7 @@ rownames(edna.abundance) <- make.names(rownames(edna.abundance), unique = TRUE) 
 edna.abundance <- edna.abundance[rowSums(edna.abundance) > 0, ]
 
 virome.reads <- read.csv("../Data/normalized_abundance_tables/bulk_virome_normalized_table.csv",row.names = 1) 
-rownames(bulk.reads) <- make.names(rownames(bulk.reads), unique = TRUE) #This remove special characters that or originally in the row names
+
 metat.reads <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv",row.names = 1)
 rownames(metat.reads) <- make.names(rownames(metat.reads), unique = TRUE) #This remove special characters that or originally in the row names
 
@@ -63,98 +63,21 @@ collapse_to_presence <- function(mat, source_name) {
 
 
 # Nucleic acid extraction methods
+
+## Normalizing so that 1 is the max value for that nucleic acid type
 ```{r}
+#Create a data frame with all of the nucleic acid concentrations
 nucleic.acid.conc <- metadata %>% 
   rownames_to_column("Samples") %>%
   full_join(rna.conc,by="Samples") %>% 
   full_join(virome.dna.conc,by="Samples") %>% 
   mutate(timepoint = substr(Samples,1,2)) %>% 
-  mutate(across(
-      where(is.numeric),
-      ~ as.numeric(scale(.)),
-      .names = "{.col}_z"
-    )) %>% 
   pivot_longer(c(-Samples,-timepoint))
-
-# Plot nucleic acid concentrations by extraction method
-
-stat.df <- nucleic.acid.conc %>% 
-    filter(grepl("soil",name),
-           !grepl("_z",name),
-           !is.na(value)) %>% 
-  mutate(name = case_when(
-    name == "eDNA_ng.g.soil" ~ "eDNA",
-    name == "metag_ng.g.soil" ~ "Total Soil",
-    name ==  "Virome.dna.ng.g.soil" ~ "Virome",
-    name == "rna.ng.g.soil" ~ "Metatranscriptome",
-    TRUE ~ name
-  )) %>%
-  mutate(phosphorus = ifelse(grepl("P",Samples),"Phosphorus","No Phosphorus"))
-
-lm.model <- lm((value) ~ timepoint, data = stat.df)
-shapiro.test(lm.model$residuals)
-
-#Not normal will do kruskal wallis
-kruskal.test(value ~ timepoint, data = stat.df)
-# Post-hoc test
-stat.df.fig <- stat.df %>% 
-  group_by(name) %>%
-  rstatix::dunn_test(value ~ timepoint, data = ., p.adjust.method = "fdr") %>%
-  filter(p.adj <= 0.05) %>%
-  rstatix::add_xy_position(x = "timepoint",
-                           # group = "name"
-                           ) %>% 
-  mutate(y.position = case_when(
-    grepl("Virome",name) & group1 == "T0" & group2 == "T3" ~ 16,
-    grepl("Virome",name) & group1 == "T1" & group2 == "T2" ~ 19,
-    grepl("Virome",name) ~ y.position/700,
-    grepl("eDNA",name) & group1 == "T0" & group2 == "T3" ~ 2200,
-    grepl("eDNA",name) & group1 == "T1" & group2 == "T2" ~ 2400,
-    grepl("eDNA",name) ~ 2000,
-    grepl("metag",name) & group1 == "T0" & group2 == "T3" ~ 39000,
-    grepl("metag",name) & group1 == "T1" & group2 == "T2" ~ 41000,
-    grepl("metag",name) & group1 == "T1" & group2 == "T3" ~ 43000,
-    grepl("metag",name) ~ 37000,
-    TRUE ~ y.position)
-  )
-
-dna.conc.fig <- nucleic.acid.conc %>% 
-    filter(grepl("soil",name),
-           !grepl("_z",name)) %>% 
-  mutate(name = case_when(
-    name == "eDNA_ng.g.soil" ~ "eDNA",
-    name == "metag_ng.g.soil" ~ "Total Soil",
-    name ==  "Virome.dna.ng.g.soil" ~ "Virome",
-    name == "rna.ng.g.soil" ~ "Metatranscriptome",
-    TRUE ~ name
-  ))  %>% 
-    ggboxplot(x = "timepoint", y = "value", color = "name",outliers = FALSE)+
-    ggpubr::stat_pvalue_manual(stat.df.fig, 
-                               label = "p.adj.signif",
-                              tip.length = 0,
-                              hide.ns = TRUE)+
-    geom_jitter(aes(x=timepoint, y=value,color = name), alpha=0.5,
-              position = position_jitterdodge(
-      jitter.width = 0.55,
-      dodge.width  = 0.75
-    ))+
-    facet_wrap(~name, scales = "free_y")+
-    xlab("Time point (Weeks)")+
-    ylab(expression("Nucleic acid concentration (ng g"^{-1}*" soil)"))+
-  theme(legend.position = "none")+
-  scale_color_manual(values = c(col.lnll, "eDNA" = "khaki3","Total Soil" = "pink2"))
-
-#stats
-stat.df <- nucleic.acid.conc %>% 
-    filter(
-           grepl("soil_z",name)) %>% 
-  mutate(phosphorus = ifelse(grepl("P",Samples),"Phosphorus","No Phosphorus"))
 
 summary_df <- nucleic.acid.conc %>%
   filter(
-    grepl("soil", name),
-    !grepl("_z", name)
-  ) %>%
+    grepl("soil", name)
+  ) %>% # Select for concentrations that were normalized by soil used
   group_by(timepoint, name) %>%
   summarise(
     mean_value = mean(value, na.rm = TRUE),
@@ -169,26 +92,8 @@ summary_df <- nucleic.acid.conc %>%
     TRUE ~ name
   ))
 
-## virome on second y axis
-# split data
-df_bar <- summary_df %>%
-  filter(name %in% c("Virome")) %>%
-  mutate(y = log10(mean_value),
-         ymin = log10(mean_value - sd_value),
-         ymax = log10(mean_value + sd_value))
-
-df_line <- summary_df %>%
-  filter(name %in% c("Total soil DNA", "Metatranscriptome","eDNA")) %>%
-  mutate(y = log10(mean_value),
-         ymin = log10(mean_value - sd_value),
-         ymax = log10(mean_value + sd_value))
-
-
-### Stats ###
-### Make the df for stats
 stat.df <- nucleic.acid.conc %>% 
     filter(grepl("soil",name),
-           !grepl("_z",name),
            !is.na(value)) %>% 
   mutate(name = case_when(
     name == "eDNA_ng.g.soil" ~ "eDNA",
@@ -196,27 +101,37 @@ stat.df <- nucleic.acid.conc %>%
     name ==  "Virome.dna.ng.g.soil" ~ "Virome",
     name == "rna.ng.g.soil" ~ "Metatranscriptome",
     TRUE ~ name
-  ))
+  )) %>%
+  mutate(phosphorus = ifelse(grepl("P",Samples),"Phosphorus","No Phosphorus"))
+
+# First for each nucleic acid source, will find the time point with the highest max mean concentrations
+max_value <- summary_df %>% 
+  group_by(name) %>% 
+  summarise(max_conc = max(mean_value))
+
+normal.stat.df <- stat.df %>%
+  left_join(max_value, by = "name") %>% 
+  mutate(max_norm_value = value/max_conc)
 
 ### First check to see if a linear model is appropriate
-sapply(unique(stat.df$name), function(x) {
-  df_ <- stat.df %>% filter(name == x) # Select for samples by nucleic acid source
-  model <- lm(value ~ timepoint, data = df_)
+sapply(unique(normal.stat.df$name), function(x) {
+  df_ <- normal.stat.df %>% filter(name == x) # Select for samples by nucleic acid source
+  model <- lm(max_norm_value ~ timepoint, data = df_)
   print(paste0("Shapiro test for:",x))
   shapiro.test(model$residuals)
 })
 
 ### Metagenome is not normal lets see if we log/sqrt transform helps
-model <- lm(sqrt(value) ~ timepoint, data = stat.df %>% filter(name == "Total soil DNA"))
+model <- lm(log(max_norm_value) ~ timepoint, data = normal.stat.df %>% filter(name == "Total soil DNA"))
 shapiro.test(model$residuals) # neither transformation help will run KW on Total soil DNA
 
 ### First run test on all non metag samples
 normal.stats <- do.call(rbind,
         lapply(
-    unique(stat.df$name[stat.df$name != "Total soil DNA"]),
+    unique(normal.stat.df$name[normal.stat.df$name != "Total soil DNA"]),
     function(x) {
-      df_ <- stat.df %>% filter(name == x) # Select for samples by nucleic acid source
-      lm.mod <- lm(value ~ timepoint, data = df_)
+      df_ <- normal.stat.df %>% filter(name == x) # Select for samples by nucleic acid source
+      lm.mod <- lm(max_norm_value ~ timepoint, data = df_)
       aov.mod <- aov(lm.mod)
       tukey.df <- tukey_hsd(aov.mod) %>% 
         mutate(na.source = x) %>% 
@@ -226,10 +141,10 @@ normal.stats <- do.call(rbind,
     }
   ))
 
-
 ## Run KW on total soil DNA
-kruskal_test(value ~ timepoint, data = stat.df[stat.df$name == "Total soil DNA",])
-non.normal.test <- dunn_test(value ~ timepoint, data = stat.df[stat.df$name == "Total soil DNA",], p.adjust.method = "fdr") %>% 
+kruskal_test(max_norm_value ~ timepoint, 
+             data = normal.stat.df[normal.stat.df$name == "Total soil DNA",])
+non.normal.test <- dunn_test(max_norm_value ~ timepoint, data = normal.stat.df[normal.stat.df$name == "Total soil DNA",], p.adjust.method = "fdr") %>% 
   mutate(na.source = "Total soil DNA") %>% 
   rename(term = `.y.`,
          estimate = statistic) %>% # make column names match with other stat dataframe
@@ -251,123 +166,80 @@ cld.non.normal <- all.stats %>%
     names_to = "timepoint",
     values_to = "cld"
   )
-  
-df_bar <- df_bar %>%
-  mutate(
-    y2    = y*3,
-    ymin2 = (ymin )*3,
-    ymax2 = (ymax )*3
-  ) %>%
-  filter(name == "Virome") %>%
-  left_join(
-    cld.non.normal %>% filter(na.source == "Virome"),
-    by = c("timepoint" = "timepoint")
-  ) %>%
-  mutate(
-    y_label = ymax2 + 0.2  # vertical offset
-  )
 
-df_line <- df_line %>%
-  left_join(
-    cld.non.normal,
-    by = c("name" = "na.source", "timepoint" = "timepoint")
-  ) %>%
-  mutate(y_label = ymax + 0.2)
-
+# Dodge width
 pd <- position_dodge(width = 0.3)
 
-conc.fig.log.virome <- ggplot() +
-  # bars (primary / left axis)
-  geom_col(
-    data = df_bar,
-    aes(x = timepoint, y = y2, fill = name),
-    position = pd,
-    width = 0.7,
-    alpha = 0.7,
-    show.legend = FALSE
-  ) +
+normal.fig.df <- normal.stat.df %>% 
+  group_by(name,timepoint) %>% 
+  summarize(mean_max = mean(max_norm_value),
+            sd_max = sd(max_norm_value),
+            se_max = sd_max/sqrt(n()),
+          .groups = "drop") %>% 
+  mutate(
+    y=mean_max,
+    ymin = mean_max-se_max,
+    ymax = mean_max + se_max
+  ) %>% 
+  left_join(cld.non.normal,
+            by = join_by("name" == "na.source",
+                         "timepoint" == "timepoint")) %>% 
+  mutate(y_label = ymax + 0.035 )
+
+conc.fig.norm.virome <- ggplot() +
   geom_text(
-    data = df_bar,
-    aes(x = timepoint, 
-        y = y_label, 
-        label = cld,
-        color = name),
-    inherit.aes = FALSE,
-    size = 3,
-    show.legend = FALSE
-  ) +
-  geom_text(
-    data = df_line,
-    aes(x = timepoint, 
-        y = y_label, 
+    data = normal.fig.df,
+    aes(x = timepoint,
+        y = y_label,
         label = cld,
         group = name,
         color = name),
     inherit.aes = FALSE,
-    size = 3,
+    size = 3.2,
     position = pd,
     show.legend = FALSE
   )+
   geom_line(
-    data = df_line,
-    aes(x = timepoint, y = y, color = name, group = name),
-    linewidth = 1,
+    data = normal.fig.df,
+    aes(x = timepoint, y = y, 
+        color = name, group = name,
+        linetype = name),
+    linewidth = 1.25,
     position = pd,
+    alpha = 0.9
   ) +
   geom_point(
-    data = df_line,
+    data = normal.fig.df,
     aes(x = timepoint, y = y, color = name),
-    size = 2,
+    size = 2.2,
     position = pd,
-    show.legend = FALSE
+    show.legend = FALSE,
+    alpha = 0.9
   ) +
   geom_errorbar(
-    data = df_line,
+    data = normal.fig.df,
     aes(x = timepoint, ymin = ymin, ymax = ymax, color = name),
     width = 0.15,
     position = pd,
+    show.legend = FALSE,
+    alpha = 0.8
   ) +
-  geom_errorbar(
-    data = df_bar,
-    aes(x = timepoint, ymin = ymin2, ymax = ymax2, color = name),
-    position = pd,
-    width = 0.15,
-    show.legend = FALSE
-  ) +
-  # lines (secondary / right axis, plotted on primary after transform)
-  scale_y_continuous(
-    limits = c(0,4.7),
-    breaks = (seq(0,4.5,0.5)),
-    expand = c(0, 0),
-    name = "log10 nucleic acid\n(ng per gram of soil)",
-    sec.axis = sec_axis(
-      breaks = seq(0, 1.5, 0.25),
-      ~ (.) /3,
-      name = "log10 virome DNA\n(ng per gram of soil)"
-    ))+
+  xlab("Time point (weeks)") +
+  ylab("Normalized nucleic acid concentration")+
+  theme_pubr() +
+  scale_fill_manual(values = c(col.lnll, "eDNA" = "khaki3", "Total soil DNA" = "pink2")) +
+  scale_color_manual(values = c(col.lnll, "eDNA" = "khaki3", "Total soil DNA" = "pink2"))+
+  labs(color = "Nucleic acid source") +
       guides(
         color = guide_legend(
           nrow = 2,
           byrow = TRUE,
-          override.aes = list(linewidth = 1.2)
-  )) +
-  geom_line(
-  data = data.frame(
-    timepoint = "T0",
-    y2 = NA,
-    name = "Virome"
-  ),
-  aes(x = timepoint, y = y2, color = name),
-  linewidth = 1,
-  inherit.aes = FALSE
-)+
-  xlab("Time point (weeks)") +
-  theme_pubr() +
-  scale_fill_manual(values = c(col.lnll, "eDNA" = "khaki3", "Total soil DNA" = "pink2")) +
-  scale_color_manual(values = c(col.lnll, "eDNA" = "khaki3", "Total soil DNA" = "pink2"))+
-  labs(color = "Nucleic acid source")
+          override.aes = list(linewidth = 1.2)),
+        linetype = "none")
+  
 
 ```
+
 
 # Heatmap
 ```{r}
@@ -538,7 +410,7 @@ ht_grob <- grid::grid.grab(wrap = TRUE)              # grab what’s on the page
 
 ht_as_gg <- ggplotify::as.ggplot(ht_grob)
 
-left.pan <- ggarrange(conc.fig.log.virome,bar_fig,
+left.pan <- ggarrange(conc.fig.norm.virome,bar_fig,
                       ncol =1,
                       labels = c("A","C")
                       )
@@ -553,5 +425,6 @@ ggsave("../figures/figure5.png",
        height = 9,
        dpi = 300)
 
+ggsave("../figures/figure5.svg")
 ```
 

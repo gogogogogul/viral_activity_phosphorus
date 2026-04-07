@@ -6,6 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 library(llnl)
 library(rstatix)
 library(ggpubr)
@@ -16,7 +17,7 @@ library(patchwork)
 library(ggtext)
 ```
 
-Generate figure 4 and supplamentary figure 2
+Generate figure 4 and supplementary figure 2
 
 Used the equation found in Alexa paper
 
@@ -24,6 +25,12 @@ https://www.nature.com/articles/s41467-023-40835-4
 
 ```{r Import Data}
 votu.metadata <- readRDS("../Data/votu_metadata.RDS")
+
+metadata.sample.virome <- read_csv("../Data/metadata/bulk_metadata.csv") %>% 
+  select("SampleID","Virome Dry  Weight (g)")
+
+metadata.sample.metat <- read_csv("../Data/metadata/metat_metadata.csv") %>% 
+  select("SampleID","Metat Dry  Weight (g)")
 
 predicted.dna.weight <- read.csv("../Data/predicted.dna.weight.csv") %>% 
   mutate(Header = gsub(">","",Header),
@@ -105,7 +112,7 @@ total.virome.counts <- data.frame(virome.counts = colSums(virome.counts.pa))
 # changes the row names to match the other dataframe
 rownames(total.virome.counts) <- paste(rownames(total.virome.counts),"virome",sep = "")
 
-#add to the lentght data
+#add to the length data
 virome.mapped <- merge(virome.mapped,total.virome.counts, by.x = "row.names", by.y = "row.names")
 
 ```
@@ -140,6 +147,8 @@ avg.bp.virome <- rbind(
 
 #lets calculate virions per sample
 dna.conc.virome <- dna.conc.virome %>% 
+  mutate(SampleID = gsub("virome","",Samples)) %>% 
+  left_join(metadata.sample.virome, by = "SampleID") %>% 
   mutate(Phosphorus = ifelse(
     grepl("P",Samples),
     "Phosphorus",
@@ -153,8 +162,7 @@ dna.conc.virome <- dna.conc.virome %>%
     (viral.dna.ng*6.0221E23)/((avg.bp.virome %>% filter(sample.type == "Virome.No.Phosphorus"))[[1]]*1E9)
   )
   ),
-  virions.da.g = ifelse(grepl("T0", Time.Point),virions.da/(10/1.07),virions.da/(10/1.3))
-  )
+  virions.da.g = virions.da/`Virome Dry  Weight (g)`)
 
 # add a group of T0 that will be phosphorus, to make sure they have the same starting point for dry soils
 t0.dups <- dna.conc.virome %>% 
@@ -240,7 +248,7 @@ virions.virome <- ggplot(dna.conc.virome,aes(x=Time.Point,y=virions.da.g, #divid
                      tip.length = 0,
                      step.increase = 0.05,size = 7)+ #filter for if there was a significant difference between time points
   theme_classic2()+
-  xlab("Time (Weeks)")+
+  xlab("Time (weeks)")+
   ylab("Virions per g of soil")+
   labs(color = "Treatment",
        fill  = "Treatment")+
@@ -329,6 +337,7 @@ avg.bp.metat <- rbind(
 
 #lets calculate virocells per sample
 rna.conc.metat <- rna.conc.metat %>% 
+  left_join(metadata.sample.metat, by = c("Samples" = "SampleID")) %>% 
   mutate(Phosphorus = ifelse(
     grepl("P",Samples),
     "Phosphorus",
@@ -373,9 +382,10 @@ df.virocells <- df.virocells %>%
 df.virocells.long <- df.virocells %>% 
   pivot_longer(contains("Virocell"),values_to = "Virocells") %>% 
   mutate(virus.per.cell = str_extract(name, "(?<=_).*"),        
-          Virocells.g = ifelse(grepl("T0",Samples),
-            Virocells/(0.5/1.07), #divide by soil
-            Virocells/(0.5/1.3))) #divide by soil
+          # Virocells.g = ifelse(grepl("T0",Samples),
+          #   Virocells/(0.5/1.07), #divide by soil
+          #   Virocells/(0.5/1.3))) #divide by soil
+          Virocells.g = Virocells/`Metat Dry  Weight (g)`) #divide by soil
 
 
 
@@ -435,10 +445,10 @@ all.stat <-rbind(time.p,time.pho) %>%
     group2 == "T2" ~ 3,
     group2 == "T3" ~ 4
   ),
-  y.position = ifelse(term == "Phosphorus",max(df.virocells.long$Virocells.g)/250,max(df.virocells.long$Virocells.g)/250*1.1)
+  y.position = ifelse(term == "Phosphorus",max(df.virocells.long$Virocells.g)/245,max(df.virocells.long$Virocells.g)/240*1.1)
   ) %>% 
   mutate(p.adj.signif = ifelse(term == "Phosphorus" ,gsub("\\*"," ‡",p.adj.signif),p.adj.signif),
-         y.position = ifelse(term == "Phosphorus" ,max(df.virocells.long$Virocells.g)/195,y.position))
+         y.position = ifelse(term == "Phosphorus" ,max(df.virocells.long$Virocells.g)/180,y.position))
 
 # find offset below x-axis
 y_offset <- -0.08 * max(df.virocells.long %>% 
@@ -456,7 +466,7 @@ virions.metat.200 <- ggplot(df.virocells.long %>%
   scale_color_manual(values= col.lnll)+
   scale_fill_manual(values= col.lnll)+
 theme_classic2()+
-  xlab("Time (Weeks)")+
+  xlab("Time (weeks)")+
   ylab("Virocells per gram of soil")+
   # ylab("Actively infected cells per g of soil")+
   labs(fill = "Treatment",
@@ -537,7 +547,7 @@ ggsave(plot =virions.virocells, "../figures/figure4.png",height = 6, width = 12 
 
 virions.metat <- ggplot(df.virocells.long %>% 
                           filter(grepl("da",virus.per.cell)) %>% 
-                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)),aes(x=Time.Point,y=Virocells/0.5,color = Phosphorus))+
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)),aes(x=Time.Point,y=Virocells.g,color = Phosphorus))+
   geom_smooth(aes(group = Phosphorus,fill = Phosphorus))+
   facet_wrap(~virus.per.cell, scales = "free_y")+
   scale_color_manual(values= col.lnll)+
@@ -550,23 +560,23 @@ theme_classic2()+
   scale_y_continuous(
     labels = function(x) format_superscript(x)
   )+
-  theme(axis.text.y = element_markdown())
+  theme(axis.text.y = ggtext::element_markdown())
 
 labels.p <- df.virocells.long %>%
-    filter(grepl("da", virus.per.cell), Phosphorus == "Phosphorus") %>%
-    mutate(virus.per.cell = gsub("da\\.", "", virus.per.cell)) %>%
-    group_by(virus.per.cell) %>%
-    summarize(
-        x = max(Time.Point), 
-        y = log10(Virocells[Time.Point == max(Time.Point)]/0.5)
-    ) %>% 
-         group_by(virus.per.cell,x) %>% 
-         summarise(y = median(y),.groups = "drop")
+  filter(grepl("da", virus.per.cell), Phosphorus == "Phosphorus") %>%
+  mutate(virus.per.cell = gsub("da\\.", "", virus.per.cell)) %>%
+  group_by(virus.per.cell) %>%
+  filter(Time.Point == max(Time.Point)) %>%
+  summarise(
+    x = max(Time.Point),
+    y = median(log10(Virocells.g), na.rm = TRUE),
+    .groups = "drop"
+  )
 
 p.metat <- ggplot(df.virocells.long %>% 
                           filter(grepl("da",virus.per.cell),
                                  Phosphorus == "Phosphorus") %>% 
-                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)),aes(x=Time.Point,y=log10(Virocells/0.5),color = virus.per.cell))+
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)),aes(x=Time.Point,y=log10(Virocells.g),color = virus.per.cell))+
   geom_smooth(aes(group = virus.per.cell,fill = virus.per.cell))+
   facet_wrap(~Phosphorus, scales = "free_y")+
   scale_color_manual(values= c("1" = "#800F24",
@@ -584,7 +594,7 @@ p.metat <- ggplot(df.virocells.long %>%
                                "200" = "#EAB8BD"
                               ))+
 theme_classic2()+
-  xlab("Time (Weeks)")+
+  xlab("Time (weeks)")+
   ylab("log10(Virocells per gram of soil)")+
   labs(fill = "Phosphorus (Viruses/Cell)",
        color = "Phosphorus (Viruses/Cell)")+
@@ -603,20 +613,20 @@ p.meta.all <- df.virocells.long %>%
                                    mutate(virus.per.cell=gsub("da\\.","",virus.per.cell))
 
 labels.no.p <- df.virocells.long %>%
-    filter(grepl("da", virus.per.cell), Phosphorus == "No Phosphorus") %>%
-    mutate(virus.per.cell = gsub("da\\.", "", virus.per.cell)) %>%
-    group_by(virus.per.cell) %>%
-    summarize(
-        x = max(Time.Point), 
-        y = log10(Virocells[Time.Point == max(Time.Point)]/0.5)
-    ) %>% 
-         group_by(virus.per.cell,x) %>% 
-         summarise(y = median(y),.groups = "drop")
+  filter(grepl("da", virus.per.cell), Phosphorus == "No Phosphorus") %>%
+  mutate(virus.per.cell = gsub("da\\.", "", virus.per.cell)) %>%
+  group_by(virus.per.cell) %>%
+  filter(Time.Point == max(Time.Point)) %>%
+  summarise(
+    x = max(Time.Point),
+    y = median(log10(Virocells.g), na.rm = TRUE),
+    .groups = "drop"
+  )
 
 no.p.metat <- ggplot(df.virocells.long %>% 
                           filter(grepl("da",virus.per.cell),
                                  Phosphorus == "No Phosphorus") %>% 
-                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)),aes(x=Time.Point,y=log10(Virocells/0.5),color = virus.per.cell))+
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)),aes(x=Time.Point,y=log10(Virocells.g),color = virus.per.cell))+
   geom_smooth(aes(group = virus.per.cell,fill = virus.per.cell))+
   facet_wrap(~Phosphorus, scales = "free_y")+
   scale_color_manual(values= c("1" = "gray30",
@@ -634,7 +644,7 @@ no.p.metat <- ggplot(df.virocells.long %>%
                                "200" = "gray80"
                               ))+
 theme_classic2()+
-  xlab("Time (Weeks)")+
+  xlab("Time (weeks)")+
   ylab("log10(Virocells per gram of soil)")+
   labs(fill = "No Phosphorus (Viruses/Cell)",
        color = "No Phosphorus (Viruses/Cell)")+
