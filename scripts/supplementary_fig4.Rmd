@@ -1,0 +1,190 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(ggpubr)
+library(vegan)
+library(llnl)
+library(phyloseq)
+```
+
+# Functions
+```{r}
+align_dists <- function(dist1, dist2) {
+  # Convert dist objects to matrices
+  mat1 <- as.matrix(dist1)
+  mat2 <- as.matrix(dist2)
+  
+  # Find shared sample names
+  shared_samples <- intersect(rownames(mat1), rownames(mat2))
+  
+  # If no shared samples, stop
+  if (length(shared_samples) == 0) {
+    stop("No shared samples between the two distance matrices.")
+  }
+  
+  # Subset and order both matrices
+  mat1_subset <- mat1[shared_samples, shared_samples]
+  mat2_subset <- mat2[shared_samples, shared_samples]
+  
+  # Convert back to dist objects
+  dist1_aligned <- as.dist(mat1_subset)
+  dist2_aligned <- as.dist(mat2_subset)
+  
+  # Return as a named list
+  return(list(dist1 = dist1_aligned, dist2 = dist2_aligned))
+}
+
+align_and_melt_dists <- function(...) {
+  df.list <- list(...)
+  
+  long_dfs <- mapply(function(mat, name) {
+    as.matrix(mat) %>% 
+    as.data.frame(.) %>%
+      rownames_to_column("A") %>%
+      pivot_longer(-A, names_to = "B", values_to = name)
+  }, df.list, names(df.list), SIMPLIFY = FALSE)
+  
+  # Join all melted dfs together (assumes they are compatible in structure)
+  combined_df <- reduce(long_dfs, full_join, by = c("A", "B"))
+  
+  return(combined_df)
+}
+
+```
+
+# Data
+```{r}
+dist.16s <- readRDS("../Data/amplicon/rarefied_phyloseq_object.king.RDS")
+dist.16s <- data.frame(t(otu_table(dist.16s)))
+dist.16s <- llnl::dist.table(dist.16s,"Y","bray")
+dist.16s <- as.matrix(dist.16s)
+rownames(dist.16s) <- gsub("_16S|Dry_Soil", "", rownames(dist.16s))
+colnames(dist.16s) <- gsub("_16S|Dry_Soil", "", colnames(dist.16s))
+dist.16s <- as.dist(dist.16s)
+
+# dist.virome <- readRDS("../Data/virome.dist.BC.RDS") %>% 
+#   as.dist()
+
+dist.virome <- read.csv("../Data/normalized_abundance_tables/bulk_virome_normalized_table.csv",row.names = 1) %>% 
+  llnl::dist.table(.,"Y","bray") %>% 
+  as.dist()
+
+dist.metat <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv",row.names = 1) %>%
+  rownames_to_column("sample") %>%
+  mutate(sample = gsub("\\.R\\.", "", sample),
+         sample = gsub("Dry\\.soil", "", sample),
+         sample = gsub("\\.", "_", sample),
+         sample = gsub("_P", "P", sample)) %>% 
+  column_to_rownames("sample")%>% 
+  llnl::dist.table(.,"Y","bray")
+
+# Clean column names
+colnames(dist.metat) <- colnames(dist.metat) %>%
+  gsub("\\.R\\.", "", .) %>%
+  gsub("Dry\\.soil", "", .) %>%
+  gsub("\\.", "_", .) %>% 
+  gsub("_P", "P", .)
+
+rownames(dist.metat) <- rownames(dist.metat) %>%
+  gsub("\\.R\\.", "", .) %>%
+  gsub("Dry\\.soil", "", .) %>%
+  gsub("\\.", "_", .) %>% 
+  gsub("_P", "P", .)
+
+dist.metat <- dist.metat %>% 
+  as.dist()
+```
+
+```{r}
+combined <- align_and_melt_dists(
+  dist_metat = dist.metat,
+  dist_virome = dist.virome,
+  dist_16S = dist.16s
+)
+```
+
+
+#Mantel test
+```{r}
+# Make sure the distance objects are in the same order and remove samples not shared between the two
+# Virome vs 16s
+mantel_results <- bind_rows(
+  virome.16s <- align_dists(dist.virome, dist.16s ) %>% 
+    {mantel(.$dist1, .$dist2, method = "spearman", permutations = 9999)} %>% 
+    {data.frame(statistic = .$statistic, 
+                significance = .$signif,
+                test = "Virome vs 16S")},
+  
+  # Metat vs 16s
+  metat.16s <- align_dists(dist.metat,dist.16s) %>% 
+    {mantel(.$dist1, .$dist2, method = "spearman", permutations = 9999)}%>% 
+    {data.frame(statistic = .$statistic, 
+                significance = .$signif,
+                test = "MetaT vs 16S")},
+  
+  #MetaT vs Virome 
+  metat.virome <- align_dists(dist.metat,dist.virome) %>% 
+    {mantel(.$dist1, .$dist2, method = "spearman", permutations = 9999)}%>% 
+    {data.frame(statistic = .$statistic, 
+                significance = .$signif,
+                test = "MetaT vs Virome")}
+)
+```
+
+# All figures
+
+```{r}
+plot_pairwise_dataframe <- function(dist_df) {
+  # Identify distance columns
+  dist_cols <- setdiff(names(dist_df), c("A", "B")) 
+  
+  # Get all unique column combinations
+  pair_combos <- combn(dist_cols, 2, simplify = FALSE)
+  
+  # Create a long format with pairs and facet labels
+  plot_df <- map_dfr(pair_combos, function(pair) {
+    dist_df %>%
+      select(all_of(c("A", "B", pair))) %>%
+      rename(x = !!pair[1], y = !!pair[2]) %>%
+      mutate(comparison = paste(pair[1], "vs", pair[2]),
+             comparison = gsub("dist_", "", comparison),
+             comparison = gsub("metat", "MetaT", comparison),
+             comparison = gsub("virome", "Virome", comparison))
+  })
+  }
+
+combined.df <- plot_pairwise_dataframe(combined) %>% 
+  left_join(mantel_results, by = c("comparison" = "test"))
+
+# Create the plot
+ggplot(combined.df, aes(x = x, y = y)) +
+  geom_point() +
+  facet_wrap(~comparison,scales = "free") +
+  geom_text(
+    aes(
+      x = Inf, y = -Inf,
+      label = paste0("Spearman R = ", round(statistic, 2),"\n",
+                     "p = ", signif(significance, 2))
+    ),
+    hjust = 1.1, vjust = -0.5,
+    inherit.aes = FALSE,
+    data = distinct(combined.df, comparison, statistic, significance)
+  ) +
+  # Add lm line conditionally (only for significant correlations)
+  geom_smooth(
+    data = filter(combined.df, significance < 0.05),
+    method = "lm",
+    se = FALSE
+  )+
+  xlab("Bray-Curtis\ndisimilarity distance 1") +
+  ylab("Bray-Curtis\ndisimilarity distance 2")
+
+ggsave("../figures/supplementary_figure4.png", width = 11, height = 9, dpi = 300, units = "in")
+
+```
+
+
