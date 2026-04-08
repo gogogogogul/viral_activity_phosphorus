@@ -397,10 +397,6 @@ set.seed(1990)
 combine.axes$source <- as.factor(combine.axes$source)
 adonis2(as.dist(combine.dist)~source,data=combine.axes, by = "terms")
 
-hull <- combine.axes %>% 
-  group_by(Timepoint) %>% 
-  slice(chull(Axis.1, Axis.2))
-
 print(combine.pcoa)
 
 ```

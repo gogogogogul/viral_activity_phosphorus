@@ -425,6 +425,10 @@ ggsave("../figures/figure5.png",
        height = 9,
        dpi = 300)
 
-ggsave("../figures/figure5.svg")
+ggsave("../figures/figure5.svg",
+       plot = final.fig,
+       width = 15.1,
+       height = 9,
+       dpi = 300)
 ```
 
