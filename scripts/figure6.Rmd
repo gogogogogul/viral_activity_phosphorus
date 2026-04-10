@@ -156,7 +156,7 @@ abundance.16s.rel <- abundance.16s %>%
   rename(sample = Sample,
          phylum = Phylum,
          Time.Point = Timepoint,
-         pt = Phosphorus) #rename to match virome and metat dataframes
+         pt = Phosphorus) #rename to match virome and metat data frames
 ```
 
 # Top 10 phyla
@@ -174,7 +174,7 @@ top_5_phyla_virome <- virome.host %>%
   filter(phylum != "no_host") %>% 
   group_by(phylum) %>% 
   summarise(mean_relative_abundance = mean(relative_abundance), .groups = "drop") %>% 
-  slice_max(n = 8, order_by = mean_relative_abundance) %>% 
+  slice_max(n = 5, order_by = mean_relative_abundance) %>% 
   mutate(phylum = str_remove(phylum, "^p__")) %>% 
   pull(phylum)
 
@@ -311,7 +311,7 @@ final.fig <- all.data %>%
                        expand = c(0,0)
                        ) 
 
-#Edit so that dry soil is seperate then the rest
+#Edit so that dry soil is separate then the rest
 final.fig <- final.fig+
   facetted_pos_scales(
     y = list(
@@ -360,7 +360,7 @@ final.fig.16s <- all.data %>%
                        expand = c(0,0)
                        ) 
 
-#Edit so that dry soil is seperate then the rest
+#Edit so that dry soil is separate then the rest
 final.fig.16s <- final.fig.16s+
   facetted_pos_scales(
     y = list(
@@ -399,19 +399,8 @@ filtered_data_virome <- virome.data %>%
   filter(sum(count > 1) >= 2) %>% # Keep phylum if there are more than 1 observation in at least 2 of the 3 pt groups
   ungroup()
 
-View(virome.data %>%
-  filter(!is.na(phylum) & !is.na(pt),
-          pt != "T-0",
-         # relative_abundance > 0,
-         ) %>% 
-  filter(phylum %in% filtered_data_virome$phylum) %>%
-  group_by(phylum) %>% 
-  kruskal_test(relative_abundance ~ pt))
-
 virome.data %>%
   filter(!is.na(phylum) & !is.na(pt),
-         # pt != "T-0",
-         # relative_abundance > 0
          ) %>% 
   filter(phylum %in% filtered_data_virome$phylum) %>%
   group_by(phylum,pt) %>% 
@@ -419,8 +408,6 @@ virome.data %>%
 
 virome.data %>%
   filter(!is.na(phylum) & !is.na(pt),
-         # pt != "T-0",
-         # relative_abundance > 0
          ) %>% 
   filter(phylum %in% filtered_data_virome$phylum) %>%
   group_by(phylum,Timepoint) %>% 
@@ -428,8 +415,6 @@ virome.data %>%
 
 virome.data %>%
   filter(!is.na(phylum) & !is.na(pt),
-         # pt != "T-0",
-         # relative_abundance > 0
          ) %>% 
   filter(phylum %in% filtered_data_virome$phylum) %>%
   group_by(phylum) %>% 
@@ -439,7 +424,6 @@ virome.data %>%
 virome.stats.pt <- virome.data %>%
   filter(!is.na(phylum) & !is.na(pt),
           pt != "T-0",
-         # relative_abundance > 0,
          ) %>% 
   filter(phylum %in% filtered_data_virome$phylum) %>%
   group_by(phylum) %>% 
@@ -456,14 +440,12 @@ filtered_data_virome <- virome.data %>%
 
 virome.stats.time <-virome.data %>%
   filter(!is.na(phylum) & !is.na(pt),
-         # relative_abundance > 0,
          ) %>% 
   filter(phylum %in% filtered_data_virome$phylum) %>% 
   group_by(phylum) %>% 
-  # filter(n_distinct(Time.Point) > 1) %>% 
   dunn_test(relative_abundance~Time.Point)
 
-# Comvine all test and adjust p value
+# Combine all test and adjust p value
 all.virome.stats <- bind_rows(virome.stats.pt,virome.stats.time) %>% 
   mutate(p.adj = p.adjust(p, method = "fdr")) %>% 
   add_significance()
@@ -487,8 +469,6 @@ lm.mod <- lm(sqrt(relative_abundance) ~ pt,data = metat.data)
 
 metat.data %>%
   filter(!is.na(phylum) & !is.na(pt),
-         # pt != "T-0",
-         # relative_abundance > 0
          ) %>% 
   filter(phylum %in% filtered_data_metat$phylum) %>%
   group_by(phylum,pt) %>% 
@@ -496,8 +476,6 @@ metat.data %>%
 
 metat.data %>%
   filter(!is.na(phylum) & !is.na(pt),
-         # pt != "T-0",
-         # relative_abundance > 0
          ) %>% 
   filter(phylum %in% filtered_data_metat$phylum) %>%
   group_by(phylum,Timepoint) %>% 
@@ -505,8 +483,6 @@ metat.data %>%
 
 metat.data %>%
   filter(!is.na(phylum) & !is.na(pt),
-         # pt != "T-0",
-         # relative_abundance > 0
          ) %>% 
   filter(phylum %in% filtered_data_metat$phylum) %>%
   group_by(phylum) %>% 
@@ -515,7 +491,6 @@ metat.data %>%
 metat.stats.pt <- metat.data %>%
   filter(!is.na(phylum) & !is.na(pt),
          pt != "T-0",
-         # relative_abundance > 0
          ) %>% 
   filter(phylum %in% filtered_data_metat$phylum) %>%
   group_by(phylum) %>% 
@@ -524,12 +499,9 @@ metat.stats.pt <- metat.data %>%
 
 metat.stats.time <-metat.data %>%
   filter(!is.na(phylum) & !is.na(pt),
-         # relative_abundance > 0,
          ) %>% 
   filter(phylum %in% filtered_data_metat$phylum) %>% 
-  # group_by(phylum,pt) %>% 
   group_by(phylum) %>% 
-  # filter(n_distinct(Time.Point) > 1) %>% 
   dunn_test(relative_abundance~Time.Point)
 
 # Combine all test and adjust p value
@@ -559,7 +531,6 @@ lm.mod <- lm(sqrt(relative_abundance) ~ pt,data = amplicon.data)
 amplicon.data %>%
   filter(!is.na(phylum) & !is.na(pt),
          pt != "T-0",
-         # relative_abundance > 0
          ) %>% 
   filter(phylum %in% filtered_data_amplicon$phylum) %>%
   group_by(phylum,pt) %>% 
@@ -568,7 +539,6 @@ amplicon.data %>%
 amplicon.data %>%
   filter(!is.na(phylum) & !is.na(pt),
          pt != "T-0",
-         # relative_abundance > 0
          ) %>% 
   filter(phylum %in% filtered_data_amplicon$phylum) %>%
   group_by(phylum) %>% 
@@ -577,7 +547,6 @@ amplicon.data %>%
 amplicon.stats.pt <- amplicon.data %>%
   filter(!is.na(phylum) & !is.na(pt),
          pt != "T-0",
-         # relative_abundance > 0
          ) %>% 
   filter(phylum %in% filtered_data_amplicon$phylum) %>%
   group_by(phylum) %>% 
@@ -586,12 +555,9 @@ amplicon.stats.pt <- amplicon.data %>%
 
 amplicon.stats.time <-amplicon.data %>%
   filter(!is.na(phylum) & !is.na(pt),
-         # relative_abundance > 0,
          ) %>% 
   filter(phylum %in% filtered_data_amplicon$phylum) %>% 
-  # group_by(phylum,pt) %>% 
   group_by(phylum) %>% 
-  # filter(n_distinct(Time.Point) > 1) %>% 
   dunn_test(relative_abundance~Time.Point)
 
 # Combine all test and adjust p value
@@ -605,7 +571,7 @@ all.amplicon.stats <- bind_rows(amplicon.stats.pt,amplicon.stats.time) %>%
 ## Create relative abundance dataframes
 ### Virome
 ```{r}
-# Relative abundance of vOTUs that have a preducted host
+# Relative abundance of vOTUs that have a predicted host
 virome.com.data <- virome.abundance %>% 
   rownames_to_column("vOTUs") %>% 
   right_join(host.phyla,by=join_by("vOTUs" == "virus")) %>% 
@@ -626,13 +592,13 @@ virome.dist <- dist.table(virome.abundance,"Y","bray")
 # Get the order of rows in the distance matrix
 virome_order_of_samples <- rownames(virome.dist)
 
-# Check if the rownames of the reordered data frame match the order of the distance matrix
+# Check if the row names of the reordered data frame match the order of the distance matrix
 identical(virome_order_of_samples, rownames(virome.com.data))
 ```
 
 ### Metat
 ```{r}
-# Relative abundance of vOTUs that have a preducted host
+# Relative abundance of vOTUs that have a predicted host
 metat.com.data <- metat.abundance %>% 
   rownames_to_column("vOTUs") %>% 
   right_join(host.phyla,by=join_by("vOTUs" == "virus")) %>% 
@@ -653,7 +619,7 @@ metat.dist <- dist.table(metat.abundance,"Y","bray")
 # Get the order of rows in the distance matrix
 metat_order_of_samples <- rownames(metat.dist)
 
-# Check if the rownames of the reordered data frame match the order of the distance matrix
+# Check if the row names of the reordered data frame match the order of the distance matrix
 identical(metat_order_of_samples, rownames(metat.com.data))
 ```
 
@@ -661,7 +627,7 @@ identical(metat_order_of_samples, rownames(metat.com.data))
 ### Virome
 ```{r}
 virome.dbrda.result <- dbrda(as.dist(virome.dist) ~ .,data = virome.com.data %>%
-                      select(-Verrucomicrobiota) # Was removed becuse it was collinear
+                      select(-Verrucomicrobiota) # Was removed because it was colinear
                       )
 
 
@@ -674,7 +640,7 @@ virome.cap.plot.df <- merge(cap.plot.df,virome.metad,by.x = "row.names",by.y = "
 
 virome.vscores <- virome.dbrda.result$CCA$biplot
 
-#only select for significant vscores
+#only select for significant v scores
 virome.sig.cap <- virome.anova_results %>% 
   filter(`Pr(>F)` < 0.05) %>% 
   data.frame()
@@ -688,8 +654,8 @@ virome.vscores.top5 <- virome.vscores[row.names(virome.vscores) %in% top_5_phyla
 
 ### Metat
 ```{r}
-metat.dbrda.result <- dbrda(as.dist(metat.dist) ~ .,data = metat.com.data%>%
-                      select(-Verrucomicrobiota) # Was removed becuse it was collinear
+metat.dbrda.result <- dbrda(as.dist(metat.dist) ~ .,data = metat.com.data %>%
+                      select(-Verrucomicrobiota) # Was removed because it was colinear
                       )
 
 metat.anova_results <- anova.cca(metat.dbrda.result, by = "term", permutations = 999)
@@ -701,7 +667,7 @@ metat.cap.plot.df <- merge(cap.plot.df,metat.metad,by.x = "row.names",by.y = "Sa
 
 metat.vscores <- metat.dbrda.result$CCA$biplot
 
-#only select for significant vscores
+#only select for significant scores
 metat.sig.cap <- metat.anova_results %>% 
   filter(`Pr(>F)` < 0.05) %>% 
   data.frame()
@@ -826,9 +792,9 @@ metat.rda.plot <- ggscatter(metat.cap.plot.df, x="dbRDA1", y="dbRDA2",color = "P
 # Combine dbRDA plots
 ```{r}
 label.size <-22
-# All rda plots
+# All RDA plots
 
-#Only virome and metat rda plots
+#Only virome and metat RDA plots
 combined.rda.plot.top <- ggarrange(virome.rda.plot.top5, metat.rda.plot,
                                 ncol = 2, nrow = 1,
                                 common.legend = FALSE, legend = "right",
@@ -925,7 +891,7 @@ votus_all_timepoints %>%
   unique() %>% 
   length()
 
-## 1) Venn by timepoint
+## 1) Venn by time point
 sets_timepoint <- metat.actins %>%
   distinct(timepoint, vOTU) %>%                 # presence/absence only
   group_by(timepoint) %>%
@@ -1015,7 +981,7 @@ filter(n_timepoints == n_distinct(metat.actins$timepoint))
 
 votus_all_timepoints %>% pull(vOTU) %>% unique() %>% length()
 
-## 1) Venn by timepoint
+## 1) Venn by time point
 sets_timepoint <- virome.actins %>%
 distinct(timepoint, vOTU) %>%                 # presence/absence only
 group_by(timepoint) %>%

@@ -121,7 +121,7 @@ virome.metadata <- read.csv("../Data/metadata/bulk_metadata.csv",row.names = "Sa
     "Wet-Up"
   ))
 
-#Metat
+#MetaT
 metat.votu.table <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv",row.names = 1)
 metat.metadata <- read.csv("../Data/metadata/metat_metadata.csv",row.names = "SampleID")%>% 
   mutate(SampleID = rownames(.))%>% 
@@ -143,7 +143,7 @@ amplicon.d.order <- sample_data(phylo.16s)
 virome.dist <- dist.table(virome.votu.table,"Y", "bray")
 virome.meta.d.order <- meta.mod(virome.metadata,virome.dist)
   
-#### Metat ####
+#### MetaT ####
 metat.dist <- dist.table(metat.votu.table,"Y", "bray")
 metat.meta.d.order <- meta.mod(metat.metadata,metat.dist)
 
@@ -234,7 +234,7 @@ virome.richness <- alpha.div.plot(df = df,stats.df = tukey_hsd.stat,x=x,y=y,fill
 virome.richness+
   theme(legend.position = "right")
 
-### Metat
+### MetaT
 
 df <- metat.m.data %>% 
   filter(Timepoint != "T0")
@@ -334,7 +334,7 @@ virome.pcoa <- pcoa(as.dist(virome.dist))
 # make a dataframe named axes, put pcoa values in there
 virome.axes <- as.data.frame(virome.pcoa$vectors)
 
-# Give df extra column with the rownames in it 
+# Give df extra column with the row names in it 
 virome.axes$SampleID <- rownames(virome.axes)
 
 # calculate the eigenvalues for each pcoa axes 
@@ -405,7 +405,7 @@ metat.pcoa <- pcoa(as.dist(metat.dist))
 # make a dataframe named axes, put pcoa values in there
 metat.axes <- as.data.frame(metat.pcoa$vectors)
 
-# Give df extra column with the rownames in it 
+# Give df extra column with the row names in it 
 metat.axes$SampleID <- rownames(metat.axes)
 
 # calculate the eigenvalues for each pcoa axes 

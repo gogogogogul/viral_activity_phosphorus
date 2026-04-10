@@ -125,7 +125,7 @@ sapply(unique(normal.stat.df$name), function(x) {
 model <- lm(log(max_norm_value) ~ timepoint, data = normal.stat.df %>% filter(name == "Total soil DNA"))
 shapiro.test(model$residuals) # neither transformation help will run KW on Total soil DNA
 
-### First run test on all non metag samples
+### First run test on all non metaG samples
 normal.stats <- do.call(rbind,
         lapply(
     unique(normal.stat.df$name[normal.stat.df$name != "Total soil DNA"]),
@@ -263,7 +263,7 @@ edna.heatmap.df <- edna.abundance %>%
 edna.heatmap.df <- edna.heatmap.df[rowSums(edna.heatmap.df) > 0, ]
 
 df__ <- edna.heatmap.df
-# Extract timepoint from column names
+# Extract time point from column names
 timepoint <- substr(colnames(df__), 1, 2)
 phosphorus <- ifelse(grepl("T0",colnames(df__)),"Dry",ifelse(grepl("P\\+",colnames(df__)),"P+","P-"))
 
@@ -327,7 +327,7 @@ edna_heatmap <- Heatmap(
   show_heatmap_legend = TRUE,
   heatmap_legend_param = list(
   legend_height = unit(60, "mm"),
-    at = c(-5, -3,0,2), # when not using custom legend labels, it alreadys uses 2 as max
+    at = c(-5, -3,0,2), # when not using custom legend labels, it already uses 2 as max
     labels = c(-5,-3, 0, 2)
   )
 )
@@ -347,7 +347,7 @@ all_pres <- bind_rows(
   collapse_to_presence(virome.reads, "Virome"), 
   collapse_to_presence(metat.reads,  "Metatranscriptome"), 
   collapse_to_presence(edna.abundance,   "eDNA")) %>%
-  # wide: one row per vOTU × timepoint, columns = sources
+  # wide: one row per vOTU × time point, columns = sources
   pivot_wider(
     id_cols  = c(vOTU, timepoint),
     names_from  = source,

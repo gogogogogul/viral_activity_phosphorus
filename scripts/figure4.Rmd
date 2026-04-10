@@ -38,7 +38,7 @@ predicted.dna.weight <- read.csv("../Data/predicted.dna.weight.csv") %>%
          Header = gsub("-","\\.",Header),
          Header = gsub("/","_",Header))
 
-#add the weight in kDAa to the dataframe
+#add the weight in kDa to the dataframe
 votu.metadata <- merge(votu.metadata, predicted.dna.weight, by.x = "row.names", by.y = "Header") %>% 
   column_to_rownames("Row.names")
 
@@ -55,8 +55,8 @@ virome.mapped <- read.csv("../Data/bulk.virome.total.reads.csv",row.names = 1)
 meta.mapped <- read.csv("../Data/metat.rare.csv")
 meta.mapped$sample <- gsub("-",".",meta.mapped$sample)
 
-#Virome abundane tables
-#Normailzed abundances
+#Virome abundance tables
+#Normalized abundances
 virome.table <- read.csv("../Data/normalized_abundance_tables/bulk_virome_normalized_table.csv",row.names = 1)
 #Raw counts with > 90% ANI
 virome.counts <- read.csv("../Data/raw_abundance_tables/virome/bulk_virome_0.9_counts.csv",sep = "\t",row.names = 1)
@@ -65,7 +65,7 @@ virome.counts <- read.csv("../Data/raw_abundance_tables/virome/bulk_virome_0.9_c
 metat.table <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv",row.names = 1)
 metat.counts <- read.csv("../Data/raw_abundance_tables/metat/metat_0.9_counts.csv",sep = "\t",row.names = 1)
 
-# Modify special characters in rownames to match the metat abundance table rownames
+# Modify special characters in row names to match the metaT abundance table row names
 rownames(metat.counts) <- rownames(metat.counts) %>%
   gsub("\\|", ".", .) %>%
   gsub("/", ".", .) %>%
@@ -86,9 +86,9 @@ format_superscript <- function(x) {
 
 
 #Strand Corrected Weight
-Need to do a strand corrected weight for. THe Da weight is calculated for a single stand of dna, if it is dsDNA or unassigned going to muplitple by 2
+Need to do a strand corrected weight for. The Da weight is calculated for a single stand of DNA, if it is dsDNA or unassigned going to multiple by 2
 ```{r}
-#add the weight in kDAa to the dataframe
+#add the weight in kDa to the dataframe
 votu.metadata <- votu.metadata %>% 
   mutate(strand.corr.da = ifelse(ssdna.dsdna != "ssDNA",
                                  Estimated.Weight..Da.*2,
@@ -99,10 +99,10 @@ votu.metadata <- votu.metadata %>%
 ## Virome
 Calculate the number of reads that were mapped to a vOTU (viral reads)
 ```{r}
-#convert the virome table to +/- # This will make sure that the votu had a breath >= 75% 
+#convert the virome table to +/- # This will make sure that the vOTU had a breath >= 75% 
 virome.table[virome.table > 0] <- 1
 
-#multiply the count table by the +/- table # if a votu was not present it will change the value to 0
+#multiply the count table by the +/- table # if a vOTU was not present it will change the value to 0
 virome.counts.pa <- virome.table*virome.counts
 
 #Count the number of reads that mapped per sample
@@ -194,7 +194,7 @@ time.pho <- tukey_hsd(aov.mod,) %>%
                              "time"))
 
 
-#now compare if treatement was significant at each time point
+#now compare if treatment was significant at each time point
 time.p <- dna.conc.virome.stat.df %>%
   filter(Time.Point!="T0") %>%
   group_by(Time.Point) %>%
@@ -284,20 +284,20 @@ virions.virome <- ggplot(dna.conc.virome,aes(x=Time.Point,y=virions.da.g, #divid
 # Transcriptionally active
 ## Mapped reads
 ```{r}
-#convert the active viruses table to +/- # This will make sure that the votu had a breath >= 75% 
+#convert the active viruses table to +/- # This will make sure that the vOTU had a breath >= 75% 
 metat.table[metat.table > 0] <- 1
 
-#filter for votus in the active votu abundance table so that the df are the same size
+#filter for votus in the active vOTU abundance table so that the df are the same size
 metat.counts <- metat.counts[rownames(metat.counts) %in% rownames(metat.table),] 
 
-#multiply the count table by the +/- table # if a votu was not present it will change the value to 0
+#multiply the count table by the +/- table # if a vOTU was not present it will change the value to 0
 metat.counts.pa <- metat.table*metat.counts
 
 #Count the number of reads that mapped per sample
 #convert to dataframe
 total.metat.counts <- data.frame(metat.counts = colSums(metat.counts.pa))
 
-#add to the votu length data
+#add to the vOTU length data
 meta.mapped <- merge(meta.mapped,total.metat.counts, by.x = "sample", by.y = "row.names")
 
 ```
@@ -325,12 +325,12 @@ avg.bp.metat <- rbind(
     summarize(avg.weight.da = mean(strand.corr.da)) %>% 
     mutate(sample.type = "Metat.Phosphorus"),
   votu.metadata %>% 
-    select(metat_no.phosphorus,length,strand.corr.da) %>% # counting T0 as no phosphorus since it tecnically did not have phosphorus added
+    select(metat_no.phosphorus,length,strand.corr.da) %>% # counting T0 as no phosphorus since it technically did not have phosphorus added
     filter(metat_no.phosphorus == TRUE) %>% 
     summarize(avg.weight.da = mean(strand.corr.da)) %>% 
     mutate(sample.type = "Metat.No.Phosphorus"),
   votu.metadata %>% 
-    select(metat_T0.phosphorus,length,strand.corr.da) %>% # counting T0 as no phosphorus since it tecnically did not have phosphorus added
+    select(metat_T0.phosphorus,length,strand.corr.da) %>% # counting T0 as no phosphorus since it technically did not have phosphorus added
     filter(metat_T0.phosphorus == TRUE) %>% 
     summarize(avg.weight.da = mean(strand.corr.da)) %>% 
     mutate(sample.type = "Metat.T0"))
@@ -350,7 +350,7 @@ rna.conc.metat <- rna.conc.metat %>%
     (metat.dna.ng*6.0221E23)/((avg.bp.metat %>% filter(sample.type == "Metat.Phosphorus"))[[1]]*1E9),
     (metat.dna.ng*6.0221E23)/((avg.bp.metat %>% filter(sample.type == "Metat.No.Phosphorus"))[[1]]*1E9))))
 
-#Since the metat is transcriptionally active we need to convert into virocells. Since we do not know how many viruses are in a virocell we will look at multiple different virus/cell
+#Since the metaT is transcriptionally active we need to convert into virocells. Since we do not know how many viruses are in a virocell we will look at multiple different virus/cell
 
 list.numbers<- c(1,5,10,50,100,200)
 
@@ -362,7 +362,7 @@ add.virocells <- function(list.numbers,df){
     names(df_) <- c(col.name.da, "Samples")
     return(df_)
     }))
-  new.df <- new.df[, !duplicated(names(new.df))]#remove duplicatat columns
+  new.df <- new.df[, !duplicated(names(new.df))]#remove duplicate columns
   new.df <- merge(df,new.df,by = "Samples")
   return(new.df)
 }
@@ -382,9 +382,6 @@ df.virocells <- df.virocells %>%
 df.virocells.long <- df.virocells %>% 
   pivot_longer(contains("Virocell"),values_to = "Virocells") %>% 
   mutate(virus.per.cell = str_extract(name, "(?<=_).*"),        
-          # Virocells.g = ifelse(grepl("T0",Samples),
-          #   Virocells/(0.5/1.07), #divide by soil
-          #   Virocells/(0.5/1.3))) #divide by soil
           Virocells.g = Virocells/`Metat Dry  Weight (g)`) #divide by soil
 
 
@@ -468,7 +465,6 @@ virions.metat.200 <- ggplot(df.virocells.long %>%
 theme_classic2()+
   xlab("Time (weeks)")+
   ylab("Virocells per gram of soil")+
-  # ylab("Actively infected cells per g of soil")+
   labs(fill = "Treatment",
        color = "Treatment")+
   stat_pvalue_manual(all.stat %>% filter(Time.Point == "T1" |
@@ -602,10 +598,7 @@ theme_classic2()+
             aes(x = x, y = y, label = virus.per.cell, color = virus.per.cell), 
             hjust = -0.1, 
             size = 4) + # Adjust `size` as needed
-  theme(legend.position = "none") # Optional: remove legend if redundant
-  # geom_vline(xintercept = 1.1, 
-  #            color = "deepskyblue3",
-  #            linetype = "longdash")
+  theme(legend.position = "none") 
 
 p.meta.all <- df.virocells.long %>% 
                           filter(grepl("da",virus.per.cell),

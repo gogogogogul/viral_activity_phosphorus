@@ -40,7 +40,6 @@ alpha.div.plot <- function(df,stats.df,x,y,fill,color,xlab,ylab,legend.title,
               size = jitter.size,
               aes(color = !!sym(fill),
               shape = !!sym(shape)))+
-  #theme_bw()+
   xlab(xlab)+
   ylab(ylab)+
   guides(x =  guide_axis(angle = rotate)) +
@@ -315,9 +314,7 @@ metat.virome.upset <- upset(metat.virome.sums,names(metat.virome.sums),width_rat
                       ),
                     bar_number_threshold=1,
                     text=list(size = text.size*0.35,
-                      #vjust=-0.1,
                       vjust=-0.1,
-                      #hjust=0.2,
                       angle=0
                       )
                     )+
@@ -358,7 +355,7 @@ combine.pcoa <- pcoa(as.dist(combine.dist))
 # make a dataframe named axes, put pcoa values in there
 combine.axes <- as.data.frame(combine.pcoa$vectors)
 
-# Give df extra column with the rownames in it 
+# Give df extra column with the row names in it 
 combine.axes$SampleID <- rownames(combine.axes)
 
 # calculate the eigenvalues for each pcoa axes 
@@ -502,7 +499,7 @@ right.figs <- plot_grid(metat.virome.upset,bottom.right,labels = c("B",NULL,"C")
                      #rel_widths = c(1,0.7,0.1),
                      label_size = label.size)
 
-# final.div.tb <- plot_grid(left.fig,right.figs,pcoa.legend,ncol = 3,rel_widths = c(1,0.75,0.2))
+
 final.div <- plot_grid(left.fig,right.figs,ncol = 2,rel_widths = c(1,0.85))
 
 final.div.tb <- plot_grid(final.div,pcoa.legend,nrow = 2,rel_heights = c(1,0.1))

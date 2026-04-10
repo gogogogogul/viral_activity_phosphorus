@@ -101,7 +101,7 @@ virome.metadata <- read.csv("../Data/metadata/bulk_metadata.csv",row.names = "Sa
     "Wet-Up"
   ))
 
-#Metat
+#MetaT
 metat.votu.table <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv",row.names = 1)
 metat.metadata <- read.csv("../Data/metadata/metat_metadata.csv",row.names = "SampleID")%>% 
   mutate(SampleID = rownames(.))%>% 
@@ -121,7 +121,7 @@ virome.dist <- dist.table(virome.votu.table,"Y", "bray")
 
 virome.meta.d.order <- meta.mod(virome.metadata,virome.dist)
 
-#### Metat ####
+#### MetaT ####
 metat.dist <- dist.table(metat.votu.table,"Y", "bray")
 
 metat.meta.d.order <- meta.mod(metat.metadata,metat.dist)
@@ -196,7 +196,7 @@ virome.richness <- alpha.div.plot(df = df,stats.df = tukey_hsd.stat,x=x,y=y,fill
 virome.richness+
   theme(legend.position = "right")
 
-### Metat
+### MetaT
 
 df <- metat.m.data
 x <- "Timepoint"
@@ -286,9 +286,7 @@ virome.upset <- upset(virome.votu.table.sum,names(virome.votu.table.sum),width_r
                       ),
                     bar_number_threshold=1,
                     text=list(size = text.size*0.35,
-                      #vjust=-0.1,
                       vjust=-0.1,
-                      #hjust=0.2,
                       angle=0
                       )
                     )+
@@ -330,9 +328,7 @@ metat.upset <- upset(metat.votu.table.sum,names(metat.votu.table.sum),width_rati
                       ),
                     bar_number_threshold=1,
                     text=list(size = text.size*0.35,
-                      #vjust=-0.1,
                       vjust=-0.1,
-                      #hjust=0.2,
                       angle=0
                       )
                     )+
@@ -402,7 +398,7 @@ virome.pcoa <- pcoa(as.dist(virome.dist))
 # make a dataframe named axes, put pcoa values in there
 virome.axes <- as.data.frame(virome.pcoa$vectors)
 
-# Give df extra column with the rownames in it 
+# Give df extra column with the row names in it 
 virome.axes$SampleID <- rownames(virome.axes)
 
 # calculate the eigenvalues for each pcoa axes 
@@ -482,7 +478,7 @@ metat.pcoa <- pcoa(as.dist(metat.dist))
 # make a dataframe named axes, put pcoa values in there
 metat.axes <- as.data.frame(metat.pcoa$vectors)
 
-# Give df extra column with the rownames in it 
+# Give df extra column with the row names in it 
 metat.axes$SampleID <- rownames(metat.axes)
 
 # calculate the eigenvalues for each pcoa axes 
@@ -500,7 +496,7 @@ all(rownames(metat.meta.d.order) == rownames(metat.axes))
 all(metat.meta.d.order$SampleID == metat.axes$SampleID)
 metat.axes <- merge(metat.meta.d.order, metat.axes, by.x = "SampleID", by.y = "SampleID")
 
-# Metat Ellipse
+# MetaT Ellipse
 metat.ellipses <- metat.axes %>%
   group_by(Phosphorus, Timepoint) %>%
   group_modify(~ make_ellipse(.x, x_col = "Axis.3", y_col = "Axis.1",
@@ -546,13 +542,13 @@ pairwise.adonis(as.dist(metat.dist),metat.axes$Timepoint)
 pairwise.adonis(as.dist(metat.dist),metat.axes$Phosphorus)
 pairwise.adonis(as.dist(metat.dist),metat.axes$wetup)
 
-# Test phosphorus effect at each timepoint
+# Test phosphorus effect at each time point
 dist_ <- metat.dist[,grepl("P",colnames(metat.dist))]
 dist_ <- dist_[grepl("P",rownames(dist_)),]
 meta.data_ <- metat.axes %>% filter(Phosphorus=="Phosphorus")
 pairwise.adonis(as.dist(dist_),meta.data_$Timepoint)
 
-# Test no phosphorus effect at each timepoint
+# Test no phosphorus effect at each time point
 dist_ <- metat.dist[,!grepl("P|Dry",colnames(metat.dist))]
 dist_ <- dist_[!grepl("P|Dry",rownames(dist_)),]
 meta.data_ <- metat.axes %>% filter(Phosphorus=="No Phosphorus")
@@ -562,7 +558,6 @@ pairwise.adonis(as.dist(dist_),meta.data_$Timepoint)
 
 # Make one figure
 ```{r}
-library(patchwork)
 
 label.size = 18
 
