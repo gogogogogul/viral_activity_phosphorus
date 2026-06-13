@@ -183,6 +183,25 @@ rownames(edna.counts) <- make.names(rownames(edna.counts), unique = TRUE) #This 
 
 colnames(edna.counts) <- gsub("\\.Read\\.Count", "", colnames(edna.counts)) # Remove the trailing sub-string that CoverM adds
 
+edna.trad <- read.csv("../raw_abundance_tables/edna/edna_0.75_0.9_default_mean.csv",sep = '\t',row.names = 1)
+
+rownames(edna.trad) <- make.names(rownames(edna.trad), unique = TRUE) #This remove special characters that or originally in the row names
+
+colnames(edna.trad) <- gsub("\\.Mean", "", colnames(edna.trad)) # Remove the trailing sub-string that CoverM adds
+
+edna.trad.05 <- read.csv("../raw_abundance_tables/edna/edna_0.05_0.9_default_mean.csv",sep = '\t',row.names = 1)
+
+rownames(edna.trad.05) <- make.names(rownames(edna.trad.05), unique = TRUE) #This remove special characters that or originally in the row names
+
+colnames(edna.trad.05) <- gsub("\\.Mean", "", colnames(edna.trad.05)) # Remove the trailing sub-string that CoverM adds
+
+edna.trad.1 <- read.csv("../raw_abundance_tables/edna/edna_0.1_0.9_default_mean.csv",sep = '\t',row.names = 1)
+
+rownames(edna.trad.1) <- make.names(rownames(edna.trad.1), unique = TRUE) #This remove special characters that or originally in the row names
+
+colnames(edna.trad.1) <- gsub("\\.Mean", "", colnames(edna.trad.1)) # Remove the trailing sub-string that CoverM adds
+
+
 edna.0 <- read.csv("../raw_abundance_tables/edna/edna_0_default_mean.csv",sep = '\t',row.names = 1)
 
 rownames(edna.0) <- make.names(rownames(edna.0), unique = TRUE) #This remove special characters that or originally in the row names
@@ -217,27 +236,152 @@ filter_replicate_counts <- function(counts.df, min_reads = 3){
     data.frame() #Convert back to columns being samples and rows being votus
 }
 
+filter_per_sample <- function(counts.df, min_reads = 3){
+  filtered.df <- counts.df %>%
+    mutate(across(where(is.numeric), ~ if_else(. > min_reads, ., 0)))
+  
+  return(filtered.df)
+}
+
+# Functions to filter abundance tables based on present vOTUs
+
+filter_and_normalize_edna <- function(counts_filtered, edna_ref, total_df, norm_col = "total.bp") {
+  counts_filtered <- counts_filtered[rownames(edna_ref), colnames(edna_ref)] %>%
+    mutate(across(everything(), ~ as.numeric(.)))
+
+  stopifnot(identical(rownames(edna_ref), rownames(counts_filtered)))
+  stopifnot(identical(colnames(edna_ref), colnames(counts_filtered)))
+
+  edna_filtered <- (counts_filtered > 0) * 1 * edna_ref
+  ab_norm <- abundance.normal(edna_filtered, total_df, norm_col)
+  
+  #Remove votus with no matches
+  ab_norm[rowSums(ab_norm)>0,]
+}
+
 #Apply the function to both breadth cutoffs
 edna.0.counts.filtered <- filter_replicate_counts(edna.counts, min_reads = 3)
 
+saveRDS(object = edna.0.counts.filtered %>% 
+          rownames_to_column("temp") %>% 
+          filter(temp != "Group") %>% 
+          column_to_rownames("temp"),"../filter_edna_counts.RDS")
 
-same_rows <- identical(rownames(edna.0), rownames(edna.0.counts.filtered))
-edna.0.counts.filtered <- edna.0.counts.filtered[rownames(edna.0), colnames(edna.0)]%>% 
-  mutate(across(everything(), ~ as.numeric(.)))
-same_cols <- identical(colnames(edna.0), colnames(edna.0.counts.filtered))
+edna.0.normal <- filter_and_normalize_edna(edna.0.counts.filtered, edna.0, total.df)
 
-edna.filtered.0 <- (edna.0.counts.filtered > 0)* 1 * edna.0
-edna.0.normal <- abundance.normal(edna.filtered.0,total.df,"total.bp" )
+# Generate the same table with different read cut-offs
+edna.0.counts.filtered.sample <- filter_per_sample(edna.counts, min_reads = 3)
+
+edna.0.normal.sample <- filter_and_normalize_edna(edna.0.counts.filtered.sample, edna.0, total.df)
+
+edna.0.counts.filtered.1 <- filter_replicate_counts(edna.counts, min_reads = 1)
+
+edna.0.normal.1 <- filter_and_normalize_edna(edna.0.counts.filtered.1, edna.0, total.df)
+
+edna.0.counts.filtered.10 <- filter_replicate_counts(edna.counts, min_reads = 10)
+
+edna.0.normal.10 <- filter_and_normalize_edna(edna.0.counts.filtered.10, edna.0, total.df)
+
+edna.0.counts.filtered.100 <- filter_replicate_counts(edna.counts, min_reads = 100)
+
+edna.0.normal.100 <- filter_and_normalize_edna(edna.0.counts.filtered.100, edna.0, total.df)
+
+edna.trad.norm <- abundance.normal(edna.trad,total.df,"total.bp")
+
+edna.trad.norm.filter <- edna.trad.norm[rowSums(edna.trad.norm)>0,]
+
+# edna.0.normal.trad.3reads <- filter_and_normalize_edna(edna.0.counts.filtered, edna.trad, total.df) # Doesn't make a difference read filtering, will not include in downstream analyses 
+
+edna.trad.norm.05 <- abundance.normal(edna.trad.05,total.df,"total.bp")
+
+edna.trad.norm.05.filter <- edna.trad.norm.05[rowSums(edna.trad.norm.05)>0,]
+
+edna.0.normal.05.3reads <- filter_and_normalize_edna(edna.0.counts.filtered, edna.trad.05, total.df)
+
+edna.trad.norm.1 <- abundance.normal(edna.trad.1,total.df,"total.bp")
+
+edna.trad.norm.1.filter <- edna.trad.norm.1[rowSums(edna.trad.norm.1)>0,]
+
+edna.0.normal.1.3reads <- filter_and_normalize_edna(edna.0.counts.filtered, edna.trad.1, total.df)
 
 ```
 
 Save normalized votu table
 ```{r}
-#Remove votus with no matches
-edna.0.normal.filtered <- edna.0.normal[rowSums(edna.0.normal)>0,]
+write.csv(edna.0.normal,"../normalized_abundance_tables/edna_normalized_table.csv")
 
-write.csv(edna.0.normal.filtered,"../normalized_abundance_tables/edna_normalized_table.csv")
+write.csv(edna.0.normal.1,"../normalized_abundance_tables/edna/edna_normalized_table1.csv")
 
+write.csv(edna.0.normal.10,"../normalized_abundance_tables/edna/edna_normalized_table10.csv")
+
+write.csv(edna.0.normal.100,"../normalized_abundance_tables/edna/edna_normalized_table100.csv")
+
+write.csv(edna.trad.norm.filter,"../normalized_abundance_tables/edna/edna_normalized_trad.csv")
+
+write.csv(edna.trad.norm.1.filter,"../normalized_abundance_tables/edna/edna_normalized_trad_10_cov.csv")
+
+write.csv(edna.0.normal.1.3reads,"../normalized_abundance_tables/edna/edna_normalized_trad_10_cov_3reads.csv")
+
+write.csv(edna.trad.norm.05.filter,"../normalized_abundance_tables/edna/edna_normalized_trad_5_cov.csv")
+
+write.csv(edna.0.normal.05.3reads,"../normalized_abundance_tables/edna/edna_normalized_trad_5_cov_3reads.csv")
+
+write.csv(edna.0.normal.sample,"../normalized_abundance_tables/edna/edna_normalized_table_3reads_sample.csv")
+```
+
+```{r}
+replicate_occurrence <- function(counts.df, min_reads = 3) {
+  
+  # Apply the same filter as filter_replicate_counts, but in long form
+  # so we can count per-replicate detections
+  
+  long.df <- counts.df %>%
+    t() %>% 
+    data.frame() %>%
+    rownames_to_column(var = "SampleID") %>%
+    mutate(Group = str_sub(SampleID, 1, nchar(SampleID) - 2)) %>%
+    pivot_longer(
+      cols = -c(SampleID, Group),
+      names_to = "vOTU",
+      values_to = "reads"
+    )
+  
+  # For each vOTU × Group, compute pooled reads and per-replicate detection
+  occurrence.df <- long.df %>%
+    group_by(Group, vOTU) %>%
+    summarize(
+      pooled_reads = sum(reads),
+      n_reps_detected = sum(reads > 0),
+      n_reps_total = n(),
+      .groups = "drop"
+    ) %>%
+    filter(pooled_reads > min_reads)   # Keep only vOTUs that pass the filter
+  
+  return(occurrence.df)
+}
+
+# How many passing vOTUs are detected in 1, 2, or 3 replicates per group?
+summarize_occurrence <- function(occurrence.df) {
+  occurrence.df %>%
+    count(Group, n_reps_detected) %>%
+    pivot_wider(names_from = n_reps_detected, 
+                values_from = n,
+                names_prefix = "in_",
+                values_fill = 0) %>%
+    rowwise() %>%
+    mutate(
+      total_passing = sum(c_across(starts_with("in_"))),
+      pct_single_rep = round(100 * in_1 / total_passing, 1)
+    ) %>%
+    ungroup()
+}
+
+occ <- replicate_occurrence(edna.counts, min_reads = 3)
+summarize_occurrence(occ)
+
+
+occ <- replicate_occurrence(edna.counts, min_reads = 9)
+summarize_occurrence(occ)
 
 ```
 

@@ -14,7 +14,7 @@ library(cowplot)
 ```{r}
 #load data
 #Virome
-virome.votu.table <- read.csv("../Data/normalized_abundance_tables/bulk_virome_normalized_table.csv",row.names = 1)
+virome.votu.table <- read.csv("../Data/normalized_abundance_tables//bulk_virome_normalized_table.csv",row.names = 1)
 
 #Active
 metat.votu.table <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv",row.names = 1)
@@ -41,25 +41,25 @@ pa.df <- merge(transpose_df, tp, by.x= "row.names", by.y = "row.names") %>%
   column_to_rownames("Row.names")
 
 df.mean <-  pa.df %>%
-  group_by(timepoint) %>%
+  group_by(Treatment) %>%
   dplyr::summarize(
     dplyr::across(contains("NODE"),mean)
   ) %>% 
-  column_to_rownames("timepoint")
+  column_to_rownames("Treatment")
 
 #### Venn Diagram ####
 fit.venn <- venn(t(df.mean) >0)
 
 trt_virome <- plot(fit.venn,
      quantities = list(type = c("counts","percent"),cex=1.4,col="grey10"),
-     fills = list(fill = c("burlywood4","darkblue","steelblue2","lightblue"), alpha = 0.6),
+     fills = list(fill = c("burlywood4","gray70","#A71930"), alpha = 0.8),
      labels = list(col = "black", font = 2,cex = 1.5),
      edges=list(lty = 1),
      legend=FALSE,
      main = list(label = "Virome", fontsize = 16, font = 2))
 
 
-tags <- trt_virome$children[[2]]$children[[1]]$children$tags$children
+tags <- trt_virome$children[[1]]$children[[1]]$children$tags$children
 
 tags <- do.call(grid::gList, lapply(tags, function(x) {
   x$children[[2]]$label <- sub(" \\(", "\n(", x$children[[2]]$label)
@@ -68,7 +68,7 @@ tags <- do.call(grid::gList, lapply(tags, function(x) {
   x$children[[2]]$vjust <- 1
   x}))
 
-trt_virome$children[[2]]$children[[1]]$children$tags$children <- tags
+trt_virome$children[[1]]$children[[1]]$children$tags$children <- tags
 ```
 
 Metat treatment venn diagram
@@ -92,26 +92,25 @@ pa.df <- merge(transpose_df, tp, by.x= "row.names", by.y = "row.names") %>%
   column_to_rownames("Row.names")
 
 df.mean <-  pa.df %>%
-  group_by(timepoint) %>%
+  group_by(Treatment) %>%
   dplyr::summarize(
     dplyr::across(contains("NODE"),mean)
   ) %>% 
-  column_to_rownames("timepoint")
+  column_to_rownames("Treatment")
 
 #### Venn Diagram ####
 fit.venn <- venn(t(df.mean) >0)
 
 trt_metat <- plot(fit.venn,
      quantities = list(type = c("counts","percent"),cex=1.4,col="grey10"),
-     fills = list(fill = c("burlywood4","darkblue","steelblue2","lightblue"), alpha = 0.6),
+     fills = list(fill = c("burlywood4","gray70","#A71930"), alpha = 0.8),
      labels = list(col = "black", font = 2,cex = 1.5),
      edges=list(lty = 1),
      legend=FALSE,
-     main = list(label = "Transcriptionally active viruses", fontsize = 16, font = 2)
-     )
+     main = list(label = "Transcriptionally active viruses", fontsize = 16, font = 2))
 
 
-tags <- trt_metat$children[[2]]$children[[1]]$children$tags$children
+tags <- trt_metat$children[[1]]$children[[1]]$children$tags$children
 
 tags <- do.call(grid::gList, lapply(tags, function(x) {
   x$children[[2]]$label <- sub(" \\(", "\n(", x$children[[2]]$label)
@@ -120,14 +119,14 @@ tags <- do.call(grid::gList, lapply(tags, function(x) {
   x$children[[2]]$vjust <- 1
   x}))
 
-trt_metat$children[[2]]$children[[1]]$children$tags$children <- tags
+trt_metat$children[[1]]$children[[1]]$children$tags$children <- tags
 ```
 
 Combine figures
 ```{r}
 venn.d <- plot_grid(trt_virome, trt_metat, labels = c("A", "B"), label_size = 20, ncol = 2)
 
-ggsave("../figures/supplementary_fig3.png",
+ggsave("../figures/supplementary.fig3.png",
        venn.d,
        width = 12, 
        height = 6, 

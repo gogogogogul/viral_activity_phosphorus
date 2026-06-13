@@ -62,7 +62,8 @@ pal.list <- list(Patescibacteria = "#A6CEE3",
      Bacillota_C = "#7570B3" ,
      Myxococcota = "#A6761D",
      Other = "grey50" ,
-     Deinococcota = "#5ac4f6")
+     Deinococcota = "#5ac4f6"
+     )
 ```
 
 # Load Data
@@ -158,6 +159,33 @@ abundance.16s.rel <- abundance.16s %>%
          Time.Point = Timepoint,
          pt = Phosphorus) #rename to match virome and metat data frames
 ```
+
+## eDNA
+Bracken already outputs a fraction column, will use that for relative abundance
+```{r}
+edna.host <- edna_bracken %>%
+  select(name, ends_with("_frac")) %>%                          # keep phylum name + relative abundance cols
+  rename(phylum = name) %>%
+  rename_with(~ gsub("_frac$", "", .x), ends_with("_frac")) %>% # strip _frac suffix → sample names
+  column_to_rownames("phylum") %>%
+  t() %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  pivot_longer(cols      = -sample,
+               names_to  = "phylum",
+               values_to = "relative_abundance") %>%
+  mutate(Time.Point = substr(sample,1,2),
+         pt = case_when(
+           Time.Point == "T0" ~ "Dry",
+           grepl("P",sample) ~ "Phosphorus",
+           TRUE ~ "No Phosphorus"
+         ),
+    phylum = str_remove(phylum, "^p__"),
+    pt     = factor(pt, levels = c("Dry", "No Phosphorus", "Phosphorus")),
+    source = "eDNA"
+  )
+```
+
 
 # Top 10 phyla
 ## Virome
@@ -275,6 +303,15 @@ mean.sd.taxa.trt <- all.data %>%
   group_by(phylum,source,pt) |>
   summarise(mean_abundance = mean(sum_abundance)*100,
             std_dev = sd((sum_abundance))*100, .groups = "drop") 
+
+## EDNA
+mean.edna.sd.taxa <- edna.host %>% 
+  filter(phylum != "no_host") |>
+  group_by(Time.Point, pt,phylum,sample,source) |>
+  summarise(sum_abundance = sum(relative_abundance)) |>
+  group_by(phylum,source) |>
+  summarise(mean_abundance = mean(sum_abundance)*100,
+            std_dev = sd((sum_abundance))*100, .groups = "drop") 
 ```
 
 
@@ -383,7 +420,6 @@ final.bar <- ggarrange(final.fig.16s,final.fig,
           legend = "bottom")
 
 ```
-
 
 ## Stats
 ### Virome
@@ -626,6 +662,8 @@ identical(metat_order_of_samples, rownames(metat.com.data))
 ## dbRDA
 ### Virome
 ```{r}
+set.seed(1990)
+
 virome.dbrda.result <- dbrda(as.dist(virome.dist) ~ .,data = virome.com.data %>%
                       select(-Verrucomicrobiota) # Was removed because it was colinear
                       )
@@ -654,6 +692,8 @@ virome.vscores.top5 <- virome.vscores[row.names(virome.vscores) %in% top_5_phyla
 
 ### Metat
 ```{r}
+set.seed(2021)
+
 metat.dbrda.result <- dbrda(as.dist(metat.dist) ~ .,data = metat.com.data %>%
                       select(-Verrucomicrobiota) # Was removed because it was colinear
                       )
@@ -816,11 +856,11 @@ fig6 <- ggarrange(p1,p2,
                   ) +
   theme(plot.title = element_text(hjust = 0.5))
 
-ggsave(fig6, filename = "../figures/figure6.png", width = 14, height = 11, dpi = 300)
-ggsave(fig6, filename = "../figures/figure6.svg", width = 14, height = 11, dpi = 300)
+# ggsave(fig6, filename = "../figures/figure6.png", width = 14, height = 11, dpi = 300)
+# ggsave(fig6, filename = "../figures/figure6.svg", width = 14, height = 11, dpi = 300)
 ```
 
-# Supp Figure 5
+# Supp Figure 6
 ```{r}
 metat.actins <- metat.abundance %>%
   rownames_to_column("virus") %>%
@@ -921,9 +961,6 @@ mp_drywet <- ggVennDiagram::ggVennDiagram(sets_drywet, label_alpha = 0.2) +
 m_shared.actin.votus <- (mp_drywet + mp_timepoint) +
   plot_annotation(title = "Transcriptionally Active")
 
-# ggsave(plot = m_shared.actin.votus,"../figures/supplementary_fig5.png",width =12)
-# ggsave(plot = m_shared.actin.votus,"./figures/supplementary_fig5.svg",width =12)
-
 virome.actins <- virome.abundance %>%
 rownames_to_column("virus") %>%
 filter(virus %in% host.phyla$virus) %>%  #filter to only viruses with hosts
@@ -1016,8 +1053,8 @@ nrow = 2,
 labels = c("A","B"),
 font.label = list(size = 22))
 
-ggsave(plot = all.actins.fig,"../figures/supplementary_fig5.png",width =12,height=10)
-ggsave(plot = all.actins.fig,"../figures/supplementary_fig5.svg",width =12,height=10)
+ggsave(plot = all.actins.fig,"../figures/supplementary_fig6.png",width =12,height=10)
+ggsave(plot = all.actins.fig,"../figures/supplementary_fig6.svg",width =12,height=10)
 
 ```
 

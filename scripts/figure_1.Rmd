@@ -304,7 +304,7 @@ metat.virome.sums <- virome.votu.table.sum %>%
 font.size=16
 
 metat.virome.upset <- upset(metat.virome.sums,names(metat.virome.sums),width_ratio=0.2,min_size=10,
-                name = "Time Point",
+                name = NULL,
                 themes=upset_default_themes(text=element_text(size=16)),
                 base_annotations=list(
                   'Intersection size'=intersection_size(

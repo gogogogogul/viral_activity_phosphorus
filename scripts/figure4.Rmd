@@ -17,9 +17,9 @@ library(patchwork)
 library(ggtext)
 ```
 
-Generate figure 4 and supplementary figure 2
+Generate figure 4 and supplementary figure 4 and 6
 
-Used the equation found in Alexa paper
+Used the equation found in Alexa's paper
 
 https://www.nature.com/articles/s41467-023-40835-4
 
@@ -61,9 +61,85 @@ virome.table <- read.csv("../Data/normalized_abundance_tables/bulk_virome_normal
 #Raw counts with > 90% ANI
 virome.counts <- read.csv("../Data/raw_abundance_tables/virome/bulk_virome_0.9_counts.csv",sep = "\t",row.names = 1)
 
-#Data to calculate reads for ssDNA viruses
+# test t0
+t0.test <- as.data.frame(rowSums(virome.table[,1:3]) > 0) %>% 
+  rename(T0_present = 1) %>% 
+  rownames_to_column("vOTUs")
+
+votu.metadata <- votu.metadata %>% 
+  rownames_to_column("vOTUs") %>% 
+  left_join(t0.test, by = c("vOTUs" = "vOTUs")) %>% 
+  select(-virome_T0.phosphorus) %>% 
+  rename(virome_T0.phosphorus = T0_present) %>% 
+  column_to_rownames("vOTUs")
+
+# Samples containing P (phosphorus, excluding T0)
+p.test <- as.data.frame(
+  rowSums(virome.table[, grepl("P", colnames(virome.table)) & 
+                         !grepl("T0", colnames(virome.table))]) > 0
+) %>%
+  rownames_to_column("vOTUs") %>%
+  rename(P_present = 2)
+
+# Samples with no P and no T0
+no.p.test <- as.data.frame(
+  rowSums(virome.table[, !grepl("P", colnames(virome.table)) & 
+                         !grepl("T0", colnames(virome.table))]) > 0
+) %>%
+  rownames_to_column("vOTUs") %>%
+  rename(noP_present = 2)
+
+# Join both into votu.metadata
+votu.metadata <- votu.metadata %>%
+  rownames_to_column("vOTUs") %>%
+  left_join(p.test,    by = "vOTUs") %>%
+  left_join(no.p.test, by = "vOTUs") %>%
+  select(-virome_phosphorus, -virome_no.phosphorus) %>%
+  rename(virome_phosphorus    = P_present,
+         virome_no.phosphorus = noP_present) %>%
+  column_to_rownames("vOTUs")
+  
+
 metat.table <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv",row.names = 1)
 metat.counts <- read.csv("../Data/raw_abundance_tables/metat/metat_0.9_counts.csv",sep = "\t",row.names = 1)
+
+# test t0
+t0.test <- as.data.frame(rowSums(metat.table[,1:3]) > 0) %>% 
+  rename(T0_present = 1) %>% 
+  rownames_to_column("vOTUs")
+
+votu.metadata <- votu.metadata %>% 
+  rownames_to_column("vOTUs") %>% 
+  left_join(t0.test, by = c("vOTUs" = "vOTUs")) %>% 
+  select(-metat_T0.phosphorus) %>% 
+  rename(metat_T0.phosphorus = T0_present) %>% 
+  column_to_rownames("vOTUs")
+
+# Samples containing P (phosphorus, excluding T0)
+p.test <- as.data.frame(
+  rowSums(metat.table[, grepl("P", colnames(metat.table)) & 
+                         !grepl("T0", colnames(metat.table))]) > 0
+) %>%
+  rownames_to_column("vOTUs") %>%
+  rename(P_present = 2)
+
+# Samples with no P and no T0
+no.p.test <- as.data.frame(
+  rowSums(metat.table[, !grepl("P", colnames(metat.table)) & 
+                         !grepl("T0", colnames(metat.table))]) > 0
+) %>%
+  rownames_to_column("vOTUs") %>%
+  rename(noP_present = 2)
+
+# Join both into votu.metadata
+votu.metadata <- votu.metadata %>%
+  rownames_to_column("vOTUs") %>%
+  left_join(p.test,    by = "vOTUs") %>%
+  left_join(no.p.test, by = "vOTUs") %>%
+  select(-metat_phosphorus, -metat_no.phosphorus) %>%
+  rename(metat_phosphorus    = P_present,
+         metat_no.phosphorus = noP_present) %>%
+  column_to_rownames("vOTUs")
 
 # Modify special characters in row names to match the metaT abundance table row names
 rownames(metat.counts) <- rownames(metat.counts) %>%
@@ -325,12 +401,12 @@ avg.bp.metat <- rbind(
     summarize(avg.weight.da = mean(strand.corr.da)) %>% 
     mutate(sample.type = "Metat.Phosphorus"),
   votu.metadata %>% 
-    select(metat_no.phosphorus,length,strand.corr.da) %>% # counting T0 as no phosphorus since it technically did not have phosphorus added
+    select(metat_no.phosphorus,length,strand.corr.da) %>% 
     filter(metat_no.phosphorus == TRUE) %>% 
     summarize(avg.weight.da = mean(strand.corr.da)) %>% 
     mutate(sample.type = "Metat.No.Phosphorus"),
   votu.metadata %>% 
-    select(metat_T0.phosphorus,length,strand.corr.da) %>% # counting T0 as no phosphorus since it technically did not have phosphorus added
+    select(metat_T0.phosphorus,length,strand.corr.da) %>% 
     filter(metat_T0.phosphorus == TRUE) %>% 
     summarize(avg.weight.da = mean(strand.corr.da)) %>% 
     mutate(sample.type = "Metat.T0"))
@@ -464,7 +540,7 @@ virions.metat.200 <- ggplot(df.virocells.long %>%
   scale_fill_manual(values= col.lnll)+
 theme_classic2()+
   xlab("Time (weeks)")+
-  ylab("Virocells per gram of soil")+
+  ylab("Virocells per g of soil")+
   labs(fill = "Treatment",
        color = "Treatment")+
   stat_pvalue_manual(all.stat %>% filter(Time.Point == "T1" |
@@ -538,7 +614,7 @@ ggsave(plot =virions.virocells, "../figures/figure4.svg",height = 6, width = 12 
 ggsave(plot =virions.virocells, "../figures/figure4.png",height = 6, width = 12 )
 ```
 
-# Supplamentary figure 2
+# Supplementary figure 2
 ```{r supp figures}
 
 virions.metat <- ggplot(df.virocells.long %>% 
@@ -679,3 +755,422 @@ anova(gam_mod.p)
 anova(gam_mod.no.p)
 anova(all.gam)
 ```
+# Sensitivity analysis Supplementary Figure 4
+## Virome
+### Deterministic
+```{r}
+# ── 1. Define sensitivity parameters ─────────────────────────────────────────
+
+dna_pct_range <- seq(0.1, 1.0, by = 0.1)   # 10% to 100%
+
+genome_scenarios <- votu.metadata %>%
+  summarise(
+    Min    = min(strand.corr.da,    na.rm = TRUE),
+    Median = median(strand.corr.da, na.rm = TRUE),
+    Max    = max(strand.corr.da,    na.rm = TRUE),
+  ) %>%
+  pivot_longer(everything(), names_to = "genome_scenario", values_to = "weight_da") %>% 
+  mutate(weight_kda = round(weight_da / 1000,2)) # convert to kDa for labeling
+
+# ── 2. Build sensitivity grid ─────────────────────────────────────────────────
+
+sensitivity_grid <- expand.grid(
+  dna_pct         = dna_pct_range,
+  genome_scenario = genome_scenarios$genome_scenario,
+  stringsAsFactors = FALSE
+) %>%
+  left_join(genome_scenarios, by = "genome_scenario")
+
+# ── 3. Calculate virions for each combination ─────────────────────────────────
+
+sensitivity_results <- sensitivity_grid %>%
+  rowwise() %>%
+  mutate(
+    # For each parameter combo, recalculate across all samples
+    sample_results = list(
+      dna.conc.virome %>%
+        mutate(
+          viral.dna.ng_sens = dna.ng * dna_pct,
+          virions_sens       = (viral.dna.ng_sens * 6.0221E23) / (weight_da * 1E9),
+          virions_sens_g     = virions_sens / `Virome Dry  Weight (g)`
+        ))) %>%
+  unnest(sample_results)
+      
+sensitivity_results_long <- sensitivity_results %>%
+  select(Time.Point, Phosphorus, dna_pct, genome_scenario, virions_sens_g) %>% 
+  rename(virions.da.g = virions_sens_g) %>% 
+  mutate(dna_pct_label = paste0(dna_pct * 100, "%"))
+
+original_long <- sensitivity_results %>%
+  select(Time.Point, Phosphorus, dna_pct, genome_scenario, virions.da.g) %>% 
+  mutate(dna_pct =  "Original",
+         dna_pct_label =  "Original")
+
+dna_restuls_long <- rbind(sensitivity_results_long, original_long)
+
+
+
+dna_all_means <- dna_restuls_long %>%
+  group_by(Time.Point,dna_pct,dna_pct_label,genome_scenario) %>%
+  summarize(
+    mean_virions_g  = mean(virions.da.g,  na.rm = TRUE),
+    min_virions_g  = min(virions.da.g,  na.rm = TRUE),
+    max_virions_g  = max(virions.da.g,  na.rm = TRUE),
+    sd_virions_g    = sd(virions.da.g,    na.rm = TRUE),
+    ) %>% 
+  ungroup() %>%
+  mutate(genome_scenario = case_when(
+    genome_scenario == "Min" ~ paste0("Min (",genome_scenarios %>% 
+                                        filter(genome_scenario == "Min") %>% 
+                                                 pull(weight_kda)," kDa)"),
+    genome_scenario == "Median" ~ paste0("Median (",genome_scenarios %>% 
+                                        filter(genome_scenario == "Median") %>% 
+                                                 pull(weight_kda)," kDa)"),
+    genome_scenario == "Max" ~ paste0("Max (",genome_scenarios %>% 
+                                        filter(genome_scenario == "Max") %>% 
+                                                 pull(weight_kda)," kDa)")),
+    dna_pct_label = factor(dna_pct_label, 
+                           levels = c("Original", paste0(seq(10, 100, by = 10), "%"))),
+    genome_scenario = factor(genome_scenario, levels = c(
+           paste0("Min (",genome_scenarios %>% 
+                                        filter(genome_scenario == "Min") %>% 
+                                                 pull(weight_kda)," kDa)"), 
+           paste0("Median (",genome_scenarios %>% 
+                                        filter(genome_scenario == "Median") %>% 
+                                                 pull(weight_kda)," kDa)"), 
+           paste0("Max (",genome_scenarios %>% 
+                                        filter(genome_scenario == "Max") %>% 
+                                                 pull(weight_kda)," kDa)"))),
+    panel_type = ifelse(dna_pct_label == "Original", "Original", "Simulated")
+    )
+
+
+
+# ── Plot ────────────────────────────────────────────────────────────────────────
+virome_simulation_time_fig <- ggplot(dna_all_means %>% 
+         filter(dna_pct_label != "Original"), aes(x = dna_pct_label, y = mean_virions_g,
+                      color = Time.Point, 
+                      group = Time.Point
+                      )
+       ) +
+  # geom_ribbon(aes(ymin = se_lo, ymax = se_hi, fill = estimate),
+  #             alpha = 0.2, color = NA, na.rm = TRUE) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  ggh4x::facet_grid2( ~ genome_scenario, 
+                     # axes = "y",
+                     scales = "free_y") +
+  scale_y_log10(
+    # labels = function(x) formatC(x, format = "e", digits = 1)
+  ) +
+  labs(
+    x        = "Viral DNA fraction",
+    y        = "Virions per g soil",
+    subtitle = "Virions",
+    # color    = "Estimate",
+    # fill     = "Estimate",
+  ) +
+  theme_bw(base_size = 14) +
+  theme(
+    axis.text.x   = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(0.3, "lines")
+  )
+
+# ── 6. Print summary table ───────────────────────────────────────────────────
+
+# print(dna_all_means, n = 30)
+```
+
+### Probabilistic
+```{r}
+orginal_means <-  dna_restuls_long %>%
+  filter(dna_pct_label == "Original",
+         genome_scenario == "Max") %>% # Select one value here, it will not make a difference for the original data
+  group_by(Time.Point,dna_pct,dna_pct_label,Phosphorus) %>%
+  summarize(
+    mean_virions_g  = mean(virions.da.g,  na.rm = TRUE),
+    sd_virions_g    = sd(virions.da.g,    na.rm = TRUE),
+    ) %>% 
+  ungroup() %>% 
+  select(Time.Point, Phosphorus, original_mean = mean_virions_g)
+
+# ── 1. Define simulation parameters ──────────────────────────────────────────
+
+n_sims <- 10000
+set.seed(1990)
+
+# Get the bounds from your actual data
+dna_pct_min  <- 0.10
+dna_pct_max  <- 1.00
+weight_min   <- min(votu.metadata$strand.corr.da, na.rm = TRUE)
+weight_max   <- max(votu.metadata$strand.corr.da, na.rm = TRUE)
+
+# ── 2. Run Monte Carlo simulation ─────────────────────────────────────────────
+
+mc_results <- map_dfr(1:n_sims, function(i) {
+  
+  # Randomly sample one value from each continuous uniform distribution
+  dna_pct   <- runif(1, dna_pct_min,  dna_pct_max)
+  weight_da <- runif(1, weight_min,   weight_max)
+  # weight_da <- 10^runif(1, log10(weight_min), log10(weight_max))   
+  
+  # Recalculate virions for all samples with these sampled parameters
+  dna.conc.virome %>%
+    mutate(
+      viral.dna.ng_mc = dna.ng * dna_pct,
+      virions_mc      = (viral.dna.ng_mc * 6.0221E23) / (weight_da * 1E9),
+      virions_mc_g    = virions_mc / `Virome Dry  Weight (g)`,
+      sim_id          = i,
+      dna_pct_used    = dna_pct,
+      weight_da_used  = weight_da
+    ) 
+})
+
+# ── 3. Summarise simulation results ──────────────────────────────────────────
+
+mc_summary_ <- mc_results %>%
+  filter(Time.Point != "T0" | Phosphorus == "No Phosphorus") %>%
+  group_by(Time.Point, Phosphorus) %>%
+  summarise(
+    mean   = mean(virions_mc_g),
+    min_virion = min(virions_mc_g),
+    max_virion = max(virions_mc_g),
+    median = median(virions_mc_g),
+    sd     = sd(virions_mc_g),
+    ci_lo  = quantile(virions_mc_g, 0.025),  # 95% CI
+    ci_hi  = quantile(virions_mc_g, 0.975),
+    ci_lo_50 = quantile(virions_mc_g, 0.25), # 50% CI
+    ci_hi_50 = quantile(virions_mc_g, 0.75),
+    number_simulations = n(),
+    .groups = "drop"
+  )
+
+
+```
+
+## Virocells
+### Deterministic
+```{r}
+# ── 1. Define sensitivity parameters ─────────────────────────────────────────
+metat.table <- metat.table %>% 
+  rownames_to_column("votu") %>%
+  mutate(votu = case_when(
+    votu == "NODE_2_length_408432_cov_99.371922.provirus_274703_296830_1_5139.22128.22128" ~ "NODE_2_length_408432_cov_99.371922.provirus_274703_296830_1_5139.22128_22128",
+    votu == "NODE_1081_length_26408_cov_30.579460_1_1.19856.26408" ~ "NODE_1081_length_26408_cov_30.579460_1_1.19856_26408",
+    votu == "NODE_617_length_18388_cov_22.309038_1_1.12817.18388" ~ "NODE_617_length_18388_cov_22.309038_1_1.12817_18388",
+    TRUE ~ votu
+  )) %>%
+  column_to_rownames("votu")
+
+dna_pct_range <- c(1E-5, 1E-4, 1E-3,1E-2,.05,0.1,0.2,0.3,0.4,0.5)  # added some values to the range to capture more of the curve for virocells
+#Select for votus only found in metaT data
+metat_votus <- rownames(metat.table[rowSums(metat.table)>0,])
+
+metat.votu.metadata <- votu.metadata[rownames(votu.metadata) %in% metat_votus,]
+
+genome_scenarios <- metat.votu.metadata %>%
+  summarise(
+    Min    = min(strand.corr.da,    na.rm = TRUE),
+    Median = median(strand.corr.da, na.rm = TRUE),
+    Max    = max(strand.corr.da,    na.rm = TRUE),
+  ) %>%
+  pivot_longer(everything(), names_to = "genome_scenario", values_to = "weight_da") %>% 
+  mutate(weight_kda = round(weight_da / 1000,2)) # convert to kDa for labeling
+
+# ── 2. Build sensitivity grid ─────────────────────────────────────────────────
+
+sensitivity_grid <- expand.grid(
+  dna_pct         = dna_pct_range,
+  genome_scenario = genome_scenarios$genome_scenario,
+  stringsAsFactors = FALSE
+) %>%
+  left_join(genome_scenarios, by = "genome_scenario")
+
+# ── 3. Calculate virions for each combination ─────────────────────────────────
+no_virus_per_cell = 200
+virocell.200.df <- df.virocells.long %>% 
+                          filter(grepl("da",virus.per.cell)) %>% 
+                                   mutate(virus.per.cell=gsub("da\\.","",virus.per.cell)) %>% 
+                                            filter(virus.per.cell == 200) 
+
+sensitivity_results <- sensitivity_grid %>%
+  rowwise() %>%
+  mutate(
+    # For each parameter combo, recalculate across all samples
+    sample_results = list(
+      virocell.200.df %>%
+        mutate(
+          viral.dna.ng_sens = Total.metaT.RNA..ng..2 * dna_pct,
+          virions_sens       = (viral.dna.ng_sens * 6.0221E23) / (weight_da * 1E9),
+          virocells = virions_sens / no_virus_per_cell,
+          virions_sens_g     = virocells / `Metat Dry  Weight (g)`,
+        ))) %>%
+  unnest(sample_results)
+      
+sensitivity_results_long <- sensitivity_results %>%
+  select(Time.Point, Phosphorus, dna_pct, genome_scenario, virions_sens_g) %>% 
+  rename(Virocells.g = virions_sens_g) %>% 
+  mutate(dna_pct_label = paste0(dna_pct * 100, "%"))
+
+original_long <- sensitivity_results %>%
+  select(Time.Point, Phosphorus, dna_pct, genome_scenario, Virocells.g) %>% 
+  mutate(dna_pct =  "Original",
+         dna_pct_label =  "Original")
+
+dna_restuls_long <- rbind(sensitivity_results_long, original_long)
+
+write.csv(dna_restuls_long,"../temp/determenistic_virocell.csv")
+
+dna_all_means <- dna_restuls_long %>%
+  group_by(Time.Point,dna_pct,dna_pct_label,genome_scenario) %>%
+  summarize(
+    mean_virocells_g  = mean(Virocells.g,  na.rm = TRUE),
+    sd_virocells_g    = sd(Virocells.g,    na.rm = TRUE),
+    ) %>% 
+  ungroup() %>%
+  mutate(genome_scenario = case_when(
+    genome_scenario == "Min" ~ paste0("Min (",genome_scenarios %>% 
+                                        filter(genome_scenario == "Min") %>% 
+                                                 pull(weight_kda)," kDa)"),
+    genome_scenario == "Median" ~ paste0("Median (",genome_scenarios %>% 
+                                        filter(genome_scenario == "Median") %>% 
+                                                 pull(weight_kda)," kDa)"),
+    genome_scenario == "Max" ~ paste0("Max (",genome_scenarios %>% 
+                                        filter(genome_scenario == "Max") %>% 
+                                                 pull(weight_kda)," kDa)")),
+    dna_pct_label = factor(dna_pct_label, 
+                           levels = c("Original", paste0(dna_pct_range*100, "%"))),
+    genome_scenario = factor(genome_scenario, levels = c(
+           paste0("Min (",genome_scenarios %>% 
+                                        filter(genome_scenario == "Min") %>% 
+                                                 pull(weight_kda)," kDa)"), 
+           paste0("Median (",genome_scenarios %>% 
+                                        filter(genome_scenario == "Median") %>% 
+                                                 pull(weight_kda)," kDa)"), 
+           paste0("Max (",genome_scenarios %>% 
+                                        filter(genome_scenario == "Max") %>% 
+                                                 pull(weight_kda)," kDa)"))),
+    panel_type = ifelse(dna_pct_label == "Original", "Original", "Simulated")
+    )
+
+
+
+# ── Plot ────────────────────────────────────────────────────────────────────────
+# did a lot of simulated dna concetnrations so just going to pick a few
+
+virocells_simulation_time_fig <- ggplot(dna_all_means %>% 
+         filter(dna_pct_label != "Original"), 
+         aes(
+           # x = as.numeric(gsub("%","",dna_pct_label)), 
+           x = dna_pct_label, 
+           y = mean_virocells_g,
+                      color = Time.Point, 
+                      group = Time.Point
+                      )
+       ) +
+  # geom_ribbon(aes(ymin = se_lo, ymax = se_hi, fill = estimate),
+  #             alpha = 0.2, color = NA, na.rm = TRUE) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  ggh4x::facet_grid2( ~ genome_scenario, 
+                     # axes = "y",
+                     scales = "free_y") +
+  scale_y_log10(
+    breaks = scales::breaks_log(n = 10),
+  labels = scales::label_scientific()
+  ) +
+  labs(
+    x        = "Viral RNA fraction",
+    y        = "Virocells per g soil",
+    subtitle = "Virocells",
+  ) +
+  theme_bw(base_size = 14) +
+  theme(
+    axis.text.x   = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(0.3, "lines")
+  )
+
+# ── 6. Print summary table ───────────────────────────────────────────────────
+
+# print(dna_all_means, n = 30)
+```
+
+### Probabilistic
+```{r}
+orginal_means <-  dna_restuls_long %>%
+  filter(dna_pct_label == "Original",
+         genome_scenario == "Max") %>% # Select one value here, it will not make a difference for the orginal data
+  group_by(Time.Point,dna_pct,dna_pct_label,Phosphorus) %>%
+  summarize(
+    mean_virocells_g  = mean(Virocells.g,  na.rm = TRUE),
+    sd_virions_g    = sd(Virocells.g,    na.rm = TRUE),
+    ) %>% 
+  ungroup() %>% 
+  select(Time.Point, Phosphorus, original_mean = mean_virocells_g)
+
+# ── 1. Define simulation parameters ──────────────────────────────────────────
+
+n_sims <- 10000
+set.seed(1990)
+
+# Get the bounds from your actual data
+dna_pct_min  <- 1e-5 # adjusted since metat mapped at a lower percentage than the virome
+dna_pct_max  <- 0.5
+weight_min   <- min(metat.votu.metadata$strand.corr.da, na.rm = TRUE)
+weight_max   <- max(metat.votu.metadata$strand.corr.da, na.rm = TRUE)
+
+# ── 2. Run Monte Carlo simulation ─────────────────────────────────────────────
+
+mc_results <- map_dfr(1:n_sims, function(i) {
+  
+  # Randomly sample one value from each continuous uniform distribution
+  dna_pct   <- runif(1, dna_pct_min,  dna_pct_max)
+  weight_da <- runif(1, weight_min,   weight_max)
+  # weight_da <- 10^runif(1, log10(weight_min), log10(weight_max))   
+  
+  # Recalculate virions for all samples with these sampled parameters
+  virocell.200.df %>%
+    mutate(
+      viral.dna.ng_mc = Total.metaT.RNA..ng..2 * dna_pct,
+      virions_mc      = (viral.dna.ng_mc * 6.0221E23) / (weight_da * 1E9),
+      virocells = virions_mc / no_virus_per_cell,
+      virions_mc_g     = virocells / `Metat Dry  Weight (g)`,
+      sim_id          = i,
+      dna_pct_used    = dna_pct,
+      weight_da_used  = weight_da
+    ) 
+})
+
+# ── 3. Summarise simulation results ──────────────────────────────────────────
+
+mc_summary_ <- mc_results %>%
+  filter(Time.Point != "T0" | Phosphorus == "No Phosphorus") %>%
+  group_by(Time.Point, Phosphorus) %>%
+  summarise(
+    mean   = mean(virions_mc_g),
+    min_virion = min(virions_mc_g),
+    max_virion = max(virions_mc_g),
+    median = median(virions_mc_g),
+    sd     = sd(virions_mc_g),
+    ci_lo  = quantile(virions_mc_g, 0.025),  # 95% CI
+    ci_hi  = quantile(virions_mc_g, 0.975),
+    ci_lo_50 = quantile(virions_mc_g, 0.25), # 50% CI
+    ci_hi_50 = quantile(virions_mc_g, 0.75),
+    number_simulations = n(),
+    .groups = "drop"
+  )
+
+
+print(mc_summary_)
+
+
+```
+
+```{r}
+virome_simulation_time_fig+virocells_simulation_time_fig+plot_layout(guides = "collect",ncol = 2)+
+  plot_annotation(tag_levels = "A")
+
+ggsave("../figures/supplementary_figure_4.png", width = 17, height = 9)
+
+```
+

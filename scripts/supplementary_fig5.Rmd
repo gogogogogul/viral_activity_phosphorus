@@ -183,7 +183,7 @@ ggplot(combined.df, aes(x = x, y = y)) +
   xlab("Bray-Curtis\ndisimilarity distance 1") +
   ylab("Bray-Curtis\ndisimilarity distance 2")
 
-ggsave("../figures/supplementary_figure4.png", width = 11, height = 9, dpi = 300, units = "in")
+ggsave("../figures/supplementary_figure5.png", width = 11, height = 9, dpi = 300, units = "in")
 
 ```
 

@@ -202,8 +202,9 @@ conc.fig.norm.virome <- ggplot() +
   geom_line(
     data = normal.fig.df,
     aes(x = timepoint, y = y, 
-        color = name, group = name,
-        linetype = name),
+        color = name, 
+        group = name,
+        ),
     linewidth = 1.25,
     position = pd,
     alpha = 0.9

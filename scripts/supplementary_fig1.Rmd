@@ -1,137 +1,230 @@
 ---
-title: "sup.fig1"
-output: html_document
-date: "2025-08-01"
+title: "R Notebook"
+output: html_notebook
 ---
 
-```{r setup, include=FALSE}
-library(llnl)
+Compare different read cut-offs for eDNA samples
+```{r}
 library(tidyverse)
-library(eulerr)
-library(cowplot)
+library(llnl)
+library(ggpubr)
+library(vegan)
+library(patchwork)
 ```
 
-```{r}
-#load data
-#Virome
-virome.votu.table <- read.csv("../Data/normalized_abundance_tables//bulk_virome_normalized_table.csv",row.names = 1)
 
-#Active
-metat.votu.table <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv",row.names = 1)
+# Alpha diversity metrics
+```{r}
+alpha.fun <- function(df){
+  df_ <- t(df)
+  data.frame(
+  SampleID = rownames(df_),
+  Richness = rowSums(df_ > 0),
+  Shannon = diversity(df_, index = "shannon"),
+  Simpson = diversity(df_, index = "simpson"),
+  InvSimpson = diversity(df_, index = "invsimpson")
+) %>% 
+  mutate(Evenness = Shannon / log(Richness),
+         treatment = case_when(
+           grepl("T0",SampleID) ~ "Dry",
+           grepl("P",SampleID) ~ "Phosphorus",
+           TRUE ~ "No Phosphorus"
+         ),
+         time.point = substr(SampleID,1,2))
+}
 ```
 
-Virome treatment venn diagram
+# Data
 ```{r}
-#Make a dataframe for the venn diagrams
-transpose_df <- t(virome.votu.table)
+one_read <- read.csv("../Data/normalized_abundance_tables/edna/edna_normalized_table1.csv", row.names = 1)
 
-#quick metadata
-tp <- data.frame(timepoint = substr(row.names(transpose_df), 1, 2),
-                 sample=row.names(transpose_df))%>%
-  mutate(Treatment = ifelse(grepl("T0",timepoint,),
-                             "Dry",
-                             ifelse(grepl("P", sample), 
-                             "Phosphorus", 
-                             "No Phosphorus")),
-         Samples = str_extract(sample, ".*(?=\\_)"),
-         timepoint.p = paste(timepoint,Treatment,sep=" ")) %>% 
-  column_to_rownames("sample")
+three_read <- read.csv("../Data/normalized_abundance_tables/edna_normalized_table.csv", row.names = 1)
 
-pa.df <- merge(transpose_df, tp, by.x= "row.names", by.y = "row.names") %>% 
-  column_to_rownames("Row.names")
+three_read_sample <- read.csv("../Data/normalized_abundance_tables/edna/edna_normalized_table_3reads_sample.csv", row.names = 1)
 
-df.mean <-  pa.df %>%
-  group_by(Treatment) %>%
-  dplyr::summarize(
-    dplyr::across(contains("NODE"),mean)
-  ) %>% 
-  column_to_rownames("Treatment")
+ten_read <- read.csv("../Data/normalized_abundance_tables/edna/edna_normalized_table10.csv", row.names = 1)
 
-#### Venn Diagram ####
-fit.venn <- venn(t(df.mean) >0)
+hundred_read <- read.csv("../Data/normalized_abundance_tables/edna/edna_normalized_table100.csv", row.names = 1)
 
-trt_virome <- plot(fit.venn,
-     quantities = list(type = c("counts","percent"),cex=1.4,col="grey10"),
-     fills = list(fill = c("burlywood4","gray70","#A71930"), alpha = 0.8),
-     labels = list(col = "black", font = 2,cex = 1.5),
-     edges=list(lty = 1),
-     legend=FALSE,
-     main = list(label = "Virome", fontsize = 16, font = 2))
+traditional <- read.csv("../Data/normalized_abundance_tables/edna/edna_normalized_trad.csv", row.names = 1) # Filtering with 3 reads did not make a difference so did not include in analysis
 
+cov10  <- read.csv("../Data/normalized_abundance_tables/edna/edna_normalized_trad_10_cov.csv", row.names = 1)
 
-tags <- trt_virome$children[[1]]$children[[1]]$children$tags$children
+cov10_3reads <- read.csv("../Data/normalized_abundance_tables/edna/edna_normalized_trad_10_cov_3reads.csv", row.names = 1)
 
-tags <- do.call(grid::gList, lapply(tags, function(x) {
-  x$children[[2]]$label <- sub(" \\(", "\n(", x$children[[2]]$label)
-  x$children[[2]]$just <- NULL
-  x$children[[2]]$hjust <- 0.5
-  x$children[[2]]$vjust <- 1
-  x}))
+cov_5 <- read.csv("../Data/normalized_abundance_tables/edna/edna_normalized_trad_5_cov.csv", row.names = 1)
 
-trt_virome$children[[1]]$children[[1]]$children$tags$children <- tags
+cov_5_3reads <- read.csv("../Data/normalized_abundance_tables/edna/edna_normalized_trad_5_cov_3reads.csv", row.names = 1)
+
+datasets <- list(
+  "1 read"      = one_read,
+  "3 reads"     = three_read,
+  "3 reads\nper sample" = three_read_sample,
+  "10 reads"    = ten_read,
+  "100 reads"   = hundred_read,
+  "5% Breadth" = cov_5, 
+  "5% Breadth +\n>3 reads" = cov_5_3reads, 
+  "10% Breadth" = cov10,
+  "10% Breadth +\n>3 reads" = cov10_3reads,
+  "Traditional" = traditional
+)
 ```
 
-Metat treatment venn diagram
+# Compare the number of vOTUs that are present in each table
 ```{r}
-#Make a dataframe for the venn diagrams
-transpose_df <- t(metat.votu.table)
+total_votus <- tibble(
+  Cutoff = factor(names(datasets), levels = names(datasets)),
+  Richness = sapply(datasets, nrow)
+) %>%
+  mutate(
+    Filter_Type = case_when(
+      Cutoff %in% c("1 read", "3 reads", 
+                    "10 reads", "100 reads")             ~ "Pooled Read cutoff",
+      Cutoff %in% c("5% Breadth", "10% Breadth", "Traditional") ~ "Breadth cutoff",
+      Cutoff %in% c("5% Breadth +\n>3 reads", 
+                    "10% Breadth +\n>3 reads")           ~ "Pooled read + Breadth cutoff",
+      Cutoff %in% c("3 reads\nper sample")           ~ "Per sample cutoff",
+      TRUE ~ "Other"
+    )
+  )
 
-#quick metadata
-tp <- data.frame(timepoint = substr(row.names(transpose_df), 1, 2),
-                 sample=row.names(transpose_df))%>%
-  mutate(Treatment = ifelse(grepl("T0",timepoint,),
-                             "Dry",
-                             ifelse(grepl("P", sample), 
-                             "Phosphorus", 
-                             "No Phosphorus")),
-         Samples = str_extract(sample, ".*(?=\\.)"),
-         timepoint.p = paste(timepoint,Treatment,sep=" ")) %>% 
-  column_to_rownames("sample")
+filtering_richness <- ggplot(total_votus, aes(x = Cutoff, y = Richness, fill = Filter_Type)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Richness), vjust = -0.3, size = 5) +
+  scale_fill_manual(values = c(
+    "Pooled Read cutoff"           = "#2c7fb8",
+    "Per sample cutoff"     = "#41ab5d",  
+    "Breadth cutoff"        = "#d95f0e",
+    "Pooled read + Breadth cutoff" = "#7570b3"    
+  )) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x  = element_text(angle = 45, hjust = 1),
+  ) +
+  labs(title = "vOTUs retained at different filtering thresholds",
+       x = NULL,
+       y = "Number of vOTUs",
+       fill = "Filter type")
 
-pa.df <- merge(transpose_df, tp, by.x= "row.names", by.y = "row.names") %>% 
-  column_to_rownames("Row.names")
-
-df.mean <-  pa.df %>%
-  group_by(Treatment) %>%
-  dplyr::summarize(
-    dplyr::across(contains("NODE"),mean)
-  ) %>% 
-  column_to_rownames("Treatment")
-
-#### Venn Diagram ####
-fit.venn <- venn(t(df.mean) >0)
-
-trt_metat <- plot(fit.venn,
-     quantities = list(type = c("counts","percent"),cex=1.4,col="grey10"),
-     fills = list(fill = c("burlywood4","gray70","#A71930"), alpha = 0.8),
-     labels = list(col = "black", font = 2,cex = 1.5),
-     edges=list(lty = 1),
-     legend=FALSE,
-     main = list(label = "Transcriptionally active viruses", fontsize = 16, font = 2))
-
-
-tags <- trt_metat$children[[1]]$children[[1]]$children$tags$children
-
-tags <- do.call(grid::gList, lapply(tags, function(x) {
-  x$children[[2]]$label <- sub(" \\(", "\n(", x$children[[2]]$label)
-  x$children[[2]]$just <- NULL
-  x$children[[2]]$hjust <- 0.5
-  x$children[[2]]$vjust <- 1
-  x}))
-
-trt_metat$children[[1]]$children[[1]]$children$tags$children <- tags
+print(filtering_richness)
 ```
 
-Combine figures
+# Compare the number of vOTUs that are present in each sample across the different tables
 ```{r}
-venn.d <- plot_grid(trt_virome, trt_metat, labels = c("A", "B"), label_size = 20, ncol = 2)
+alpha_combined <- bind_rows(
+  lapply(names(datasets), function(label) {
+    alpha.fun(datasets[[label]]) %>% mutate(Cutoff = label)
+  })
+) %>%
+  mutate(Cutoff = factor(Cutoff, levels = names(datasets)))
 
-ggsave("../figures/sup.fig.1.png",
-       venn.d,
-       width = 12, 
-       height = 6, 
-       dpi = 300, 
-       units = "in", 
-       bg = "transparent")
+# Add a Filter_Group column to alpha_combined
+alpha_combined <- alpha_combined %>%
+  mutate(
+    Filter_Group = case_when(
+      str_detect(Cutoff, "Breadth") | Cutoff == "Traditional" ~ "Breadth-based filters",
+      TRUE                                                     ~ "Read-based filters"
+    ),
+    Filter_Group = factor(Filter_Group, 
+                          levels = c("Read-based filters", "Breadth-based filters"))
+  )
+
+# See if trend stat true for richness (T0>T2>T1>T3)
+all.time.kruskal.test <- alpha_combined %>% 
+  group_by(Cutoff) %>%
+  rstatix::kruskal_test(Richness ~ time.point)
+
+all.time.kruskal.test.sig <- all.time.kruskal.test %>% 
+  filter(p < 0.05)
+
+all.dunn.time <- alpha_combined %>% 
+  filter(Cutoff %in% all.time.kruskal.test.sig$Cutoff) %>%
+  mutate(Cutoff = factor(Cutoff, levels = unique(alpha_combined$Cutoff))) %>% # preserve full level order
+  group_by(Cutoff) %>%
+  rstatix::dunn_test(Richness ~ time.point) %>% 
+  rstatix::add_xy_position() # match dodge.width in plot
+
+# Do the same for the Dunn's test results so they facet correctly
+all.dunn.time <- all.dunn.time %>%
+  mutate(
+    Filter_Group = case_when(
+      str_detect(Cutoff, "Breadth") | Cutoff == "Traditional" ~ "Breadth-based filters",
+      TRUE                                                     ~ "Read-based filters"
+    ),
+    Filter_Group = factor(Filter_Group, 
+                          levels = c("Read-based filters", "Breadth-based filters"))
+  )
+
+cutoff_trends <- ggplot(alpha_combined, aes(x = time.point, y = Richness, color = time.point)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75)) +
+  ggh4x::facet_nested_wrap(Filter_Group ~ Cutoff, nrow = 2) +
+  scale_color_manual(values = col.lnll, name = "Time point") +
+  theme_minimal(base_size = 14) +
+  labs(title = "Richness at Different Read Cut-offs", 
+       x = "Time point", 
+       y = "Richness") +
+  ggpubr::stat_pvalue_manual(all.dunn.time, label = "p.adj.signif", 
+                              tip.length = 0.01, hide.ns = TRUE,size = 6)
+
+# Get the avg of each time point for each cutoff
+alpha_combined %>% 
+  group_by(Cutoff, time.point) %>% 
+  summarise(mean_richness = mean(Richness))
+
+```
+
+# Number of samples each vOTU is in per cutoff
+
+```{r}
+# For each cutoff, count how many samples each vOTU appears in
+votu_occurrence <- map_dfr(datasets, function(df) {
+  tibble(
+    vOTU = rownames(df),
+    n_samples_detected = rowSums(df > 0)
+  )
+}, .id = "Cutoff") %>%
+  mutate(Cutoff = factor(Cutoff, levels = names(datasets)))
+
+votu_occurrence_binned <- votu_occurrence %>%
+  mutate(
+    prevalence_bin = cut(
+      n_samples_detected,
+      breaks = c(0, 1, 5, 10, 25, 48),  # adjust to your sample count
+      labels = c("1", "2-5", "6-10", "11-25", "26-48"),
+      include.lowest = FALSE
+    )
+  ) %>%
+  count(Cutoff, prevalence_bin)
+
+votu_occurrence_fig <- ggplot(votu_occurrence_binned, aes(x = Cutoff, y = n, fill = prevalence_bin)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_viridis_d(name = "Detected in\nN samples") +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = NULL,
+       y = "Number of vOTUs",
+       title = "vOTU prevalence distribution across filters")
+
+
+```
+
+# Bring it all together
+```{r}
+#Remove the titles from the figures first
+cutoff_trends <- cutoff_trends +
+  theme(plot.title = element_blank())
+
+filtering_richness <- filtering_richness +
+  theme(plot.title = element_blank())
+
+votu_occurrence_fig <- votu_occurrence_fig +
+  theme(plot.title = element_blank())
+
+  
+combine.fig <- cutoff_trends +(filtering_richness/votu_occurrence_fig) +
+  plot_annotation(tag_levels = "A")
+
+ggsave(plot = combine.fig, "../figures/supplementary_fig1.png", width = 18, height = 12, dpi = 300)
 ```
 
