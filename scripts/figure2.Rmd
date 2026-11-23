@@ -110,7 +110,6 @@ metat.metadata <- read.csv("../Data/metadata/metat_metadata.csv",row.names = "Sa
     "Dry",
     "Wet-Up"
   ))
-
 ```
 
 
@@ -275,21 +274,23 @@ metat.votu.table.sum <- metat.votu.table %>%
 
 font.size=18
 
+sets <- c("T0","T1","T2","T3")
+# count vOTUs present in at least one time point (drops any all-FALSE rows)
+n_total <- sum(rowSums(virome.votu.table.sum[, sets]) > 0)
+
 virome.upset <- upset(virome.votu.table.sum,names(virome.votu.table.sum),width_ratio=0.2,min_size=85,
                 name = "Time Point",
-                themes=upset_default_themes(text=element_text(size=font.size)),
-                base_annotations=list(
-                  'Intersection size'=intersection_size(
-                    text_mapping=aes(label=paste0(!!get_size_mode('distinct'),"\n","(",!!upset_text_percentage(digits = 1, sep = ""),")")),
-                    text_colors=c(on_bar='black',
-                      on_background="black"
-                      ),
-                    bar_number_threshold=1,
-                    text=list(size = text.size*0.35,
-                      vjust=-0.1,
-                      angle=0
-                      )
-                    )+
+    themes = upset_default_themes(text = element_text(size = text.size)),
+    base_annotations = list(
+      'Intersection size' = intersection_size(
+        text_mapping = aes(label = paste0(
+          !!get_size_mode('distinct'), "\n(",
+          round(100 * !!get_size_mode('distinct') / !!n_total, 1), "%)"
+        )),
+        text_colors = c(on_bar = 'black', on_background = 'black'),
+        bar_number_threshold = 1,
+        text = list(size = text.size * 0.25, vjust = -0.1, angle = 0)
+      ) +
                     ylab('# of vOTUs')+
                     ylim(c(0,7500))+
                     theme(
@@ -317,21 +318,23 @@ virome.upset <- upset(virome.votu.table.sum,names(virome.votu.table.sum),width_r
     )
     )
 
-metat.upset <- upset(metat.votu.table.sum,names(metat.votu.table.sum),width_ratio=0.2,min_size=8,
+
+# count vOTUs present in at least one time point (drops any all-FALSE rows)
+n_total <- sum(rowSums(metat.votu.table.sum[, sets]) > 0)
+
+metat.upset <- upset(metat.votu.table.sum,sets,width_ratio=0.2,min_size=8,
                 name = "Time Point",
-                themes=upset_default_themes(text=element_text(size=font.size)),
-                base_annotations=list(
-                  'Intersection size'=intersection_size(
-                    text_mapping=aes(label=paste0(!!get_size_mode('distinct'),"\n","(",!!upset_text_percentage(digits = 1, sep = ""),")")),
-                    text_colors=c(on_bar='black',
-                      on_background="black"
-                      ),
-                    bar_number_threshold=1,
-                    text=list(size = text.size*0.35,
-                      vjust=-0.1,
-                      angle=0
-                      )
-                    )+
+  themes = upset_default_themes(text = element_text(size = text.size)),
+  base_annotations = list(
+    'Intersection size' = intersection_size(
+      text_mapping = aes(label = paste0(
+        !!get_size_mode('distinct'), "\n(",
+        round(100 * !!get_size_mode('distinct') / !!n_total, 1), "%)"
+      )),
+      text_colors = c(on_bar = 'black', on_background = 'black'),
+      bar_number_threshold = 1,
+      text = list(size = text.size * 0.25, vjust = -0.1, angle = 0)
+    )+
                     ylab('# of vOTUs')+
                     ylim(c(0,3500))+
                     theme(
@@ -554,16 +557,16 @@ dist_ <- dist_[!grepl("P|Dry",rownames(dist_)),]
 meta.data_ <- metat.axes %>% filter(Phosphorus=="No Phosphorus")
 pairwise.adonis(as.dist(dist_),meta.data_$Timepoint)
 
+point.size = 3.25
+
 ```
 
 # Make one figure
 ```{r}
-
 label.size = 18
 
-
 pcoa.figs <- virome.pcoa +
-  ggtitle("Virome")+
+  ggtitle("Virome") +
   metat.pcoa + 
   ggtitle("Metatranscriptome") +
   plot_annotation(tag_levels = "A") + 
@@ -572,15 +575,27 @@ pcoa.figs <- virome.pcoa +
         plot.tag = element_text(size = label.size, face = "bold"))
 
 
-richness.fig <- plot_grid(virome.richness, metat.richness,
+richness.fig <- plot_grid(virome.richness +
+  ggtitle("Virome"),
+  metat.richness +
+  ggtitle("Metatranscriptome"),
                       labels = c("C","D"),
                      nrow = 2,
                      label_size = label.size)
 
-upset.figs <- plot_grid(virome.upset,metat.upset,
-                      labels = c("E","F"),
-                     nrow = 1,
-                     label_size = label.size)
+add_title <- function(p, txt, size = 14) {
+  title <- ggdraw() +
+    draw_label(txt, size = size, x = 0.1, hjust = 0.1)
+  plot_grid(title, p, ncol = 1, rel_heights = c(0.06, 1))
+}
+
+upset.figs <- plot_grid(
+  add_title(virome.upset, "Virome"),
+  add_title(metat.upset,  "Metatranscriptome"),
+  labels = c("E", "F"),
+  nrow = 1,
+  label_size = label.size
+)
 
 top.figs <- plot_grid(pcoa.figs,richness.fig,
                      nrow = 1,

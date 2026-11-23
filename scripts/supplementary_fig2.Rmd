@@ -1,0 +1,78 @@
+---
+title: "sup.fig1"
+output: html_document
+date: "2025-08-01"
+---
+
+```{r setup, include=FALSE}
+library(llnl)
+library(tidyverse)
+library(eulerr)
+library(cowplot)
+```
+
+```{r}
+#load data
+#Virome
+virome.votu.table <- read.csv("../Data/normalized_abundance_tables//bulk_virome_normalized_table.csv",row.names = 1)
+
+#Active
+metat.votu.table <- read.csv("../Data/normalized_abundance_tables/active_votu_abundances.csv",row.names = 1)
+```
+
+```{r}
+# Treatment-level Venn diagram from a vOTU table (rows = vOTUs, columns = samples)
+treatment.venn <- function(votu.table, title){
+  transpose_df <- t(votu.table)
+
+  tp <- data.frame(timepoint = substr(row.names(transpose_df), 1, 2),
+                   sample = row.names(transpose_df)) %>%
+    mutate(Treatment = ifelse(grepl("T0", timepoint),
+                              "Dry",
+                              ifelse(grepl("P", sample),
+                                     "Phosphorus",
+                                     "No Phosphorus"))) %>%
+    column_to_rownames("sample")
+
+  pa.df <- merge(transpose_df, tp, by.x = "row.names", by.y = "row.names") %>%
+    column_to_rownames("Row.names")
+
+  df.mean <- pa.df %>%
+    group_by(Treatment) %>%
+    dplyr::summarize(dplyr::across(contains("NODE"), mean)) %>%
+    column_to_rownames("Treatment")
+
+  fit.venn <- venn(t(df.mean) > 0)
+
+  plot(fit.venn,
+       quantities = list(template = "{counts}\n({percent})", fontsize = 12, col = "grey10"),
+       fills = list(fill = c("burlywood4", "gray70", "#A71930"), alpha = 0.7),
+       labels = list(col = "black", font = 2, fontsize = 15, position = "outside"),
+       edges = list(col = "grey30", lwd = 1),
+       legend = FALSE,
+       main = list(label = title, fontsize = 17, font = 2))
+}
+
+trt_virome <- treatment.venn(virome.votu.table, "Virome")
+trt_metat  <- treatment.venn(metat.votu.table, "Transcriptionally active viruses")
+```
+
+Combine figures
+```{r}
+# leave a strip above each panel so the A/B tags don't sit on the titles
+pad <- function(p) ggdraw() + draw_plot(p, y = 0, height = 0.93)
+
+venn.d <- plot_grid(pad(trt_virome), NULL, pad(trt_metat),
+                    labels = c("A", "", "B"), label_size = 20,
+                    ncol = 3, rel_widths = c(1, 0.08, 1)) +
+  theme(plot.margin = margin(10, 10, 10, 10))
+
+ggsave("../figures/supplementary_fig2.png",
+       venn.d,
+       width = 12,
+       height = 6,
+       dpi = 300,
+       units = "in",
+       bg = "transparent")
+```
+

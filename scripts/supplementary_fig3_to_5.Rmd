@@ -324,8 +324,8 @@ virions.virome <- ggplot(dna.conc.virome,aes(x=Time.Point,y=virions.da.g, #divid
                      tip.length = 0,
                      step.increase = 0.05,size = 7)+ #filter for if there was a significant difference between time points
   theme_classic2()+
-  xlab("Time (weeks)")+
-  ylab("Virions per g of soil")+
+  xlab("Time point (weeks)")+
+  ylab("Estimated modeled\nvirions per g of soil")+
   labs(color = "Treatment",
        fill  = "Treatment")+
   scale_y_continuous(
@@ -539,8 +539,8 @@ virions.metat.200 <- ggplot(df.virocells.long %>%
   scale_color_manual(values= col.lnll)+
   scale_fill_manual(values= col.lnll)+
 theme_classic2()+
-  xlab("Time (weeks)")+
-  ylab("Virocells per g of soil")+
+  xlab("Time point (weeks)")+
+  ylab("Estimated modeled\nvirocells per g of soil")+
   labs(fill = "Treatment",
        color = "Treatment")+
   stat_pvalue_manual(all.stat %>% filter(Time.Point == "T1" |
@@ -605,16 +605,167 @@ df.virocells.long %>%
             sd.virocells = sd(Virocells.g))
 ```
 
-
+# DNA/RNA Concentrations
 ```{r}
-library(patchwork)
-virions.virocells <- virions.virome+virions.metat.200+plot_layout(axes = "collect",guides = "collect")+plot_annotation(tag_levels = 'A')
+library(emmeans)
 
-ggsave(plot =virions.virocells, "../figures/figure4.svg",height = 6, width = 12 )
-ggsave(plot =virions.virocells, "../figures/figure4.png",height = 6, width = 12 )
+# df needs: Samples, Time.Point, Phosphorus ("Dry" for T0), value (ng per g soil)
+plot_conc_trt <- function(df, ylab) {
+
+  # T0 (Dry) has no phosphorus treatment, so it is plotted but not tested
+  trt.df <- df %>% filter(Phosphorus != "Dry")
+
+  lm.mod <- lm(value ~ Time.Point * Phosphorus, data = trt.df)
+
+  # P vs no P within each time point, BH across time points
+  p.stats <- emmeans(lm.mod, ~ Phosphorus | Time.Point, data = trt.df) %>%
+    pairs(reverse = TRUE) %>%                          # Phosphorus - No Phosphorus
+    as_tibble() %>%
+    mutate(p.adj = p.adjust(p.value, method = "BH")) %>%
+    add_significance("p.adj")
+
+  # x offsets: T0 in the centre, No P left, P right
+  x_levels <- c("T0", "T1", "T2", "T3")
+  p_offset <- c("Dry" = 0, "No Phosphorus" = -0.1, "Phosphorus" = 0.1)
+
+  df <- df %>% mutate(x = match(Time.Point, x_levels) + p_offset[Phosphorus])
+
+  fig.df <- df %>%
+    group_by(Time.Point, Phosphorus, x) %>%
+    summarise(mean_value = mean(value),
+              se_value   = sd(value) / sqrt(n()),
+              .groups = "drop")
+
+  # T0 is the shared starting point of both treatment lines
+  line.df <- fig.df %>%
+    filter(Phosphorus == "Dry") %>%
+    select(-Phosphorus) %>%
+    crossing(Phosphorus = c("No Phosphorus", "Phosphorus")) %>%
+    bind_rows(fig.df %>% filter(Phosphorus != "Dry"))
+
+  y_pad <- 0.05 * diff(range(df$value))
+
+  star.df <- p.stats %>%
+    filter(p.adj < 0.05) %>%                           # only significant, as in figure 4
+    left_join(df %>%
+                group_by(Time.Point) %>%
+                summarise(y_label = max(value) + y_pad, .groups = "drop"),
+              by = "Time.Point") %>%
+    mutate(x = match(Time.Point, x_levels))
+
+  p <- ggplot(fig.df, aes(x = x, y = mean_value, color = Phosphorus)) +
+    geom_point(data = df, aes(y = value),
+               position = position_jitter(width = 0.04, height = 0, seed = 1),
+               size = 1.8, alpha = 0.4, show.legend = FALSE) +
+    geom_line(data = line.df, aes(group = Phosphorus), linewidth = 1.25, alpha = 0.9) +
+    geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                  width = 0.08, show.legend = FALSE) +
+    geom_point(size = 3) +
+    geom_segment(data = star.df,                       # bracket over each P vs no P pair
+                 aes(x = x - 0.1, xend = x + 0.1, y = y_label, yend = y_label),
+                 inherit.aes = FALSE, linewidth = 0.4) +
+    geom_text(data = star.df, aes(x = x, y = y_label, label = p.adj.signif),
+              inherit.aes = FALSE, vjust = -0.3, size = 6) +
+    scale_x_continuous(breaks = 1:4, labels = x_levels) +
+    scale_color_manual(values = col.lnll, breaks = c("No Phosphorus", "Phosphorus")) +
+    scale_y_continuous(labels = scales::comma) +
+    xlab("Time point (weeks)") +
+    ylab(ylab) +
+    labs(color = "Treatment") +
+    theme_classic2() +
+    theme(text = element_text(size = 20)) +
+    ## space for labels + allow drawing outside panel
+    coord_cartesian(clip = "off") +
+    theme(plot.margin = margin(t = 5, r = 5, b = 28, l = 5),
+          axis.title.x = element_text(margin = margin(t = 38))) +
+    ## Dry/Wet bar under the x-axis, placed in data coordinates (T0 = 1 ... T3 = 4)
+    annotation_custom(grid::linesGrob(y = unit(c(-0.09, -0.09), "npc"),
+                                      gp = grid::gpar(col = "burlywood4", lwd = 4)),
+                      xmin = 0.6, xmax = 1.5, ymin = -Inf, ymax = Inf) +
+    annotation_custom(grid::linesGrob(y = unit(c(-0.09, -0.09), "npc"),
+                                      gp = grid::gpar(col = "darkblue", lwd = 4)),
+                      xmin = 1.5, xmax = 4.4, ymin = -Inf, ymax = Inf) +
+    annotate("text", x = 1, y = -Inf, label = "Dry",
+             vjust = 3.7, size = 6, fontface = "bold", colour = "burlywood4") +
+    annotate("text", x = 3, y = -Inf, label = "Wet",
+             vjust = 3.7, size = 6, fontface = "bold", colour = "darkblue")
+
+  list(plot     = p,
+       stats    = p.stats,
+       anova    = anova(lm.mod),
+       shapiro  = shapiro.test(residuals(lm.mod)),
+       summary  = fig.df)
+}
+
+## Virome: total DNA extracted per g soil (before multiplying by % reads mapped to vOTUs)
+virome.dna.df <- dna.conc.virome %>%
+  distinct(Samples, .keep_all = TRUE) %>%              # drop the duplicated T0 rows added for figure 4
+  filter(!is.na(dna.ng)) %>%
+  mutate(Phosphorus = ifelse(Time.Point == "T0", "Dry", Phosphorus),
+         value      = dna.ng / `Virome Dry  Weight (g)`)
+
+virome.dna <- plot_conc_trt(virome.dna.df, ylab = "Viromic DNA\n(ng per g of soil)")
+
+## MetaT: total RNA per g soil
+metat.rna.df <- rna.conc.metat %>%
+  filter(!is.na(Total.metaT.RNA..ng..2)) %>%
+  mutate(Phosphorus = ifelse(Time.Point == "T0", "Dry", Phosphorus),
+         value      = Total.metaT.RNA..ng..2 / `Metat Dry  Weight (g)`)
+
+metat.rna <- plot_conc_trt(metat.rna.df, ylab = "Metatranscriptomic RNA\n(ng per g of soil)")
+
+virome.dna$stats
+virome.dna$shapiro
+metat.rna$stats
+metat.rna$shapiro
+
+nucleic.acid.trt <- virome.dna$plot + metat.rna$plot +
+  plot_layout(axes = "collect", guides = "collect") +
+  plot_annotation(tag_levels = "A")
+nucleic.acid.trt
+
 ```
 
-# Supplementary figure 2
+```{r}
+virions.virocells.conc <- (virions.virome + virions.metat.200) /
+  (virome.dna$plot + metat.rna$plot & theme(legend.position = "none")) +
+  plot_layout(axes = "collect", guides = "collect",heights = c(0.75,0.25)) +
+  plot_annotation(tag_levels = "A")
+
+virions.virocells.conc
+
+# drop the Dry/Wet bars and their labels from a finished figure-4 plot
+remove_dry_wet <- function(p) {
+  is_dry_wet <- function(l) {
+    inherits(l$geom, "GeomCustomAnn") ||                                   # the coloured bars
+      (inherits(l$geom, "GeomText") &&
+         any(c(l$aes_params$label,                                         # annotate() keeps the label here
+               if (is.data.frame(l$data)) l$data$label) %in% c("Dry", "Wet")))
+  }
+  p$layers <- Filter(Negate(is_dry_wet), p$layers)
+  p +
+    theme(axis.title.x = element_blank(),
+          plot.margin  = margin(t = 5, r = 5, b = 5, l = 5))
+}
+
+virions.virocells.conc <- wrap_plots(
+  remove_dry_wet(virions.virome),
+  remove_dry_wet(virions.metat.200),
+  virome.dna$plot + theme(legend.position = "none"),
+  metat.rna$plot  + theme(legend.position = "none"),
+  ncol = 2
+) +
+  plot_layout(guides = "collect", heights = c(0.75, 0.35)) +
+  plot_annotation(tag_levels = "A")
+
+virions.virocells.conc
+
+ggsave(plot = virions.virocells.conc, "../figures/supplementary_figure4.svg", height = 14, width = 13)
+ggsave(plot = virions.virocells.conc, "../figures/supplementary_figure4.png", height = 14, width = 13)
+```
+
+
+# Supplementary figure 3
 ```{r supp figures}
 
 virions.metat <- ggplot(df.virocells.long %>% 
@@ -625,7 +776,7 @@ virions.metat <- ggplot(df.virocells.long %>%
   scale_color_manual(values= col.lnll)+
   scale_fill_manual(values= col.lnll)+
 theme_classic2()+
-  xlab("Time (Weeks)")+
+  xlab("Time point (weeks)")+
   ylab("Virocells per Gram of Soil")+
   labs(fill = "Treatment",
        color = "Treatment")+
@@ -666,7 +817,7 @@ p.metat <- ggplot(df.virocells.long %>%
                                "200" = "#EAB8BD"
                               ))+
 theme_classic2()+
-  xlab("Time (weeks)")+
+  xlab("Time point (weeks)")+
   ylab("log10(Virocells per gram of soil)")+
   labs(fill = "Phosphorus (Viruses/Cell)",
        color = "Phosphorus (Viruses/Cell)")+
@@ -713,7 +864,7 @@ no.p.metat <- ggplot(df.virocells.long %>%
                                "200" = "gray80"
                               ))+
 theme_classic2()+
-  xlab("Time (weeks)")+
+  xlab("Time point (weeks)")+
   ylab("log10(Virocells per gram of soil)")+
   labs(fill = "No Phosphorus (Viruses/Cell)",
        color = "No Phosphorus (Viruses/Cell)")+
@@ -731,7 +882,7 @@ no.p.meta.all <- df.virocells.long %>%
 #combine the figures
 no.p.metat+p.metat+plot_layout(axes = "collect",guides = "collect")
 
-ggsave("../figures/Supplamentaryfigure2.png")
+ggsave("../figures/Supplamentaryfigure3.png")
 
 ## Stats ##
 
@@ -755,7 +906,7 @@ anova(gam_mod.p)
 anova(gam_mod.no.p)
 anova(all.gam)
 ```
-# Sensitivity analysis Supplementary Figure 4
+# Sensitivity analysis Supplementary Figure 5
 ## Virome
 ### Deterministic
 ```{r}
@@ -865,7 +1016,7 @@ virome_simulation_time_fig <- ggplot(dna_all_means %>%
   ) +
   labs(
     x        = "Viral DNA fraction",
-    y        = "Virions per g soil",
+    y        = "Estimated modeled\nvirions per g soil",
     subtitle = "Virions",
     # color    = "Estimate",
     # fill     = "Estimate",
@@ -1141,7 +1292,7 @@ mc_results <- map_dfr(1:n_sims, function(i) {
     ) 
 })
 
-# ── 3. Summarise simulation results ──────────────────────────────────────────
+# ── 3. Summarize simulation results ──────────────────────────────────────────
 
 mc_summary_ <- mc_results %>%
   filter(Time.Point != "T0" | Phosphorus == "No Phosphorus") %>%
@@ -1170,7 +1321,7 @@ print(mc_summary_)
 virome_simulation_time_fig+virocells_simulation_time_fig+plot_layout(guides = "collect",ncol = 2)+
   plot_annotation(tag_levels = "A")
 
-ggsave("../figures/supplementary_figure_4.png", width = 17, height = 9)
+ggsave("../figures/supplementary_figure_5.png", width = 17, height = 9)
 
 ```
 
